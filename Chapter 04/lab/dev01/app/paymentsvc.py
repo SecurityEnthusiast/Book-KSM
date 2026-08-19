@@ -107,14 +107,22 @@ class Database:
         user, password, version = fetch_credential(
             store["socket"], store["secret_name"]
         )
-        self.conn = psycopg2.connect(
+        conn_args = dict(
             host=db["host"], port=db["port"], dbname=db["name"],
             user=user, password=password,
             # sslmode=verify-full is the whole point of Chapter 04.
             # `require` would encrypt and verify nothing, which buys a
             # confidential conversation with whoever happens to answer.
-            sslmode=db["sslmode"], sslrootcert=db["sslrootcert"],
+            sslmode=db["sslmode"],
         )
+        # The anchor is optional, and leaving it out is not neutral. libpq
+        # verifies the server certificate whenever a root CA file is
+        # present, even under sslmode=require, so naming one here makes a
+        # weak-looking config stronger than it reads. Section 7 is what
+        # happens when the line is missing and nobody noticed it mattered.
+        if db.get("sslrootcert"):
+            conn_args["sslrootcert"] = db["sslrootcert"]
+        self.conn = psycopg2.connect(**conn_args)
         self.conn.autocommit = True
         self.user, self.version = user, version
         log.info("connected to %s@%s:%s/%s (credential version %s, sslmode %s)",

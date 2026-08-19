@@ -637,14 +637,22 @@ class Database:
         user, password, version = fetch_credential(
             store["socket"], store["secret_name"]
         )
-        self.conn = psycopg2.connect(
+        conn_args = dict(
             host=db["host"], port=db["port"], dbname=db["name"],
             user=user, password=password,
             # sslmode=verify-full is the whole point of Chapter 04.
             # `require` would encrypt and verify nothing, which buys a
             # confidential conversation with whoever happens to answer.
-            sslmode=db["sslmode"], sslrootcert=db["sslrootcert"],
+            sslmode=db["sslmode"],
         )
+        # The anchor is optional, and leaving it out is not neutral. libpq
+        # verifies the server certificate whenever a root CA file is
+        # present, even under sslmode=require, so naming one here makes a
+        # weak-looking config stronger than it reads. Section 7 is what
+        # happens when the line is missing and nobody noticed it mattered.
+        if db.get("sslrootcert"):
+            conn_args["sslrootcert"] = db["sslrootcert"]
+        self.conn = psycopg2.connect(**conn_args)
         self.conn.autocommit = True
         self.user, self.version = user, version
         log.info("connected to %s@%s:%s/%s (credential version %s, sslmode %s)",
@@ -1067,7 +1075,9 @@ Turn encryption on in the application, the way almost everyone does it first:
 ```bash
 sudo docker exec dev01 chmod 0600 /opt/paymentsvc/config.yaml
 sudo docker exec dev01 sed -i 's/^  sslmode: .*/  sslmode: require/' /opt/paymentsvc/config.yaml
+sudo docker exec dev01 sed -i '/^  sslrootcert:/d' /opt/paymentsvc/config.yaml
 sudo docker exec dev01 chmod 0400 /opt/paymentsvc/config.yaml
+sudo docker exec dev01 cat /opt/paymentsvc/config.yaml
 
 sudo docker exec dev01 pkill -f paymentsvc.py || true
 sudo docker exec -d -u paymentsvc dev01 \
@@ -1075,6 +1085,21 @@ sudo docker exec -d -u paymentsvc dev01 \
 sleep 3
 curl -s http://127.0.0.1:8080/payments/1001/status
 ```
+
+The second `sed` deletes the anchor, and that line is not tidying. **libpq verifies the server
+certificate whenever a root CA file is present, even under `sslmode=require`.** Leave
+`sslrootcert` naming a real file and `require` quietly behaves as `verify-ca`, the impostor in a
+moment is refused, and you would conclude that `require` is safe.
+
+Read that twice, because it is worse than it sounds. `sslmode: require` does not name one
+behaviour. What it does depends on whether an unrelated line happens to point at a file that
+happens to exist, so a reviewer reading `sslmode: require` cannot tell you what the connection
+checks without also reading `sslrootcert` and then going to look on the filesystem. A config that
+appears weaker can be stronger, and deleting a line you thought was inert can remove the only
+verification you had.
+
+Deleting it is also the realistic case. Somebody who believes `require` means "secure" writes
+that one word and nothing else, which is the config we now have.
 
 Expected: the payment record. Confirm the traffic is now encrypted by repeating section 3's
 capture:
@@ -1147,8 +1172,23 @@ Expected:
 ```
 impostor listening on 0.0.0.0:5432
 TLS handshake COMPLETED with <dev01 ip>
-  the client told me: b'\x00\x00\x00/user\x00paymentsvc_b\x00database\x00paymentsdb\x00\x00'
+  the client told me: b'\x00\x00\x00/\x00\x03\x00\x00user\x00paymentsvc_b\x00database\x00paymentsdb\x00\x00'
 ```
+
+Those bytes are the PostgreSQL startup message: a length, protocol version 3.0, then
+`user=paymentsvc_b` and `database=paymentsdb` as null-terminated pairs.
+
+The application will then fail, and the error is worth seeing rather than skipping:
+
+```bash
+sudo docker exec dev01 tail -3 /var/log/paymentsvc.out
+```
+
+Expected: `psycopg2.OperationalError: ... SSL SYSCALL error: EOF detected`.
+
+The impostor took the startup message and hung up, because it does not implement enough of the
+protocol to continue. Do not read that failure as the system defending itself. The connection
+failed **after** the disclosure, and a real attacker would have carried on talking.
 
 Read that carefully, because it is the reason this chapter exists.
 
@@ -1202,12 +1242,14 @@ warning after the fact, it is a gate before the first disclosure.
 
 ## 8. `verify-full`
 
-Two words in the config file:
+Restore the config from your lab folder, which brings back both the mode and the anchor §7
+deleted:
 
 ```bash
-sudo docker exec dev01 chmod 0600 /opt/paymentsvc/config.yaml
-sudo docker exec dev01 sed -i 's/^  sslmode: .*/  sslmode: verify-full/' /opt/paymentsvc/config.yaml
+sudo docker cp dev01/app/config.yaml dev01:/opt/paymentsvc/config.yaml
+sudo docker exec dev01 chown paymentsvc:paymentsvc /opt/paymentsvc/config.yaml
 sudo docker exec dev01 chmod 0400 /opt/paymentsvc/config.yaml
+sudo docker exec dev01 cat /opt/paymentsvc/config.yaml
 
 sudo docker exec dev01 pkill -f paymentsvc.py || true
 sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 | tail -3
@@ -1250,9 +1292,14 @@ Expected: the payment record, and `"sslmode": "verify-full"` with
 | `sslmode` | Encrypts | Checks the certificate is trusted | Checks the name | What it protects against |
 |---|---|---|---|---|
 | `disable` | No | No | No | Nothing. Section 3. |
-| `require` | Yes | **No** | **No** | Passive eavesdropping only. Section 7. |
+| `require` | Yes | **Only if `sslrootcert` names a file that exists** | **No** | Passive eavesdropping, and nothing else unless an anchor is configured. Section 7. |
 | `verify-ca` | Yes | Yes | **No** | Eavesdropping, and impostors without a trusted certificate. Not an impostor that *has* one. |
 | `verify-full` | Yes | Yes | Yes | Eavesdropping, and any server that is not the one you asked for. |
+
+`require` is the row to distrust, and not only for the reason section 7 demonstrated. It is the
+one setting in the table whose behaviour is not determined by the table: with a usable
+`sslrootcert` it verifies the chain like `verify-ca`, and without one it verifies nothing. The
+other three mean the same thing wherever you find them.
 
 The gap between `verify-ca` and `verify-full` is small and real. `verify-ca` asks "is this
 certificate trusted?" and `verify-full` also asks "was it issued for the name I dialled?".
@@ -1468,6 +1515,9 @@ kind of object: credentials and now certificates.
 - **`sslmode=require` encrypts your conversation with the attacker.** It asks for encryption
   and not for verification, and those are separate requests. An impostor completed a TLS
   handshake and received the username and database name.
+- `require` does not name one behaviour. libpq verifies the certificate whenever a root CA file
+  is present, so the same word means `verify-ca` in a config that sets `sslrootcert` and means
+  almost nothing in one that does not. You cannot read `sslmode: require` and know what it does.
 - `verify-full` refuses **before** the client transmits anything about itself. Verification is a
   gate, not a warning.
 - `verify-ca` checks the certificate is trusted; `verify-full` also checks it was issued for the
@@ -1533,12 +1583,16 @@ you need it to be the right one, which is what `OT-017` is about.
 precisely what it failed to do, and what the impostor obtained.**
 
 It failed to check that the certificate presented was one the client had any reason to trust,
-and failed to check that it was issued for the name the client dialled. It asked for encryption,
-which it got. The impostor obtained a completed TLS handshake and the startup message, which
-carries the database name and the username `paymentsvc_b`. From there it could return any rows
-it chose to an application that makes decisions about money, which is worse than reading the
-traffic. It could not obtain the password, because SCRAM would not have completed, but by then
-it does not need to: it is the thing answering the questions.
+and failed to check that it was issued for the name the client dialled. It asked for
+encryption, which it got. Note the precondition the section had to arrange: the config named no
+`sslrootcert`. Had it named a real one, libpq would have verified the chain anyway, because
+`require` promotes itself to `verify-ca` whenever a root CA file is present, and the
+demonstration would have shown the opposite of what it was written to show. The impostor
+obtained a completed TLS handshake and the startup message, which carries the database name and
+the username `paymentsvc_b`. From there it could return any rows it chose to an application
+that makes decisions about money, which is worse than reading the traffic. It could not obtain
+the password, because SCRAM would not have completed, but by then it does not need to: it is
+the thing answering the questions.
 
 **Q6. Under `verify-full` the impostor logged `TLSV1_ALERT_UNKNOWN_CA`. Why is *when* this
 happens as important as *that* it happens?**
