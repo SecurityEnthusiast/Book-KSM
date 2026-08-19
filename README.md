@@ -154,3 +154,18 @@ always traces back to a chapter that stated it in words. Chapter 00 §4 sets the
 **Nothing is claimed that is not shown.** Where a chapter demonstrates something, you run it.
 Where it enumerates something it has not demonstrated, it says so plainly and names the
 mechanism so you can verify it yourself.
+
+---
+
+## License
+
+The writing is [CC BY-NC-SA 4.0](LICENSE.md) and the lab code is MIT. Read it, run it, teach
+your colleagues with it, and take the lab patterns to work. Ask before selling it.
+
+Two notes in [LICENSE.md](LICENSE.md) are worth reading before you run anything. Every
+credential in this repository is fake and planted to be found, including the one in the git
+history. And the labs spend most of their time in states you would never ship, because that is
+what they are for, so run them in the throwaway containers and do not lift a snippet from the
+middle of a chapter without reading what the chapter says about it next.
+
+
