@@ -1664,8 +1664,9 @@ Two machines and three processes now, in order:
 sudo docker start db01
 sleep 5
 sudo docker start dev01
-sleep 2
-sudo docker exec dev01 pg_ctlcluster 15 main stop
+sudo docker exec dev01 sh -c '
+  for i in $(seq 1 30); do pg_isready -q -h 127.0.0.1 -p 5432 && break; sleep 1; done
+  pg_ctlcluster 15 main stop'
 sudo docker exec -d -u secretstore dev01 \
     sh -c 'python3 /opt/secretstore/secretstore.py >>/var/log/secretstore.out 2>&1'
 sleep 1
@@ -1685,6 +1686,13 @@ container start, so the cluster you stopped in section 2.5 comes back every time
 does, and has to be stopped again. That is `OT-009` in a form worth naming: a host with no
 service manager cannot remember that something is supposed to be **off** any more than it can
 remember that something is supposed to be on.
+
+The wait in front of it is not padding either. The entrypoint's own `start` and your `stop` are
+two commands racing, and a fixed `sleep` decides the winner by how fast your laptop is. Lose the
+race and `pg_ctlcluster` prints `Cluster is not running.`, which reads like success and is the
+opposite: the entrypoint then finishes starting the cluster you thought you had stopped, and the
+lab is left in a state the ledger says it is not in. Waiting for `pg_isready` makes the stop
+happen after the start, on any machine.
 
 Three failure modes that look alike from outside:
 
