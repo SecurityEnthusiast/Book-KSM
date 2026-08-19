@@ -377,7 +377,8 @@ that exists.
 You may already be reaching for the obvious answer, `chmod 600` the file and be done. Hold
 that thought. It is an improvement and we will do it. It also closes a strikingly small
 fraction of the actual exposure, and understanding precisely *which* fraction is the thing
-that will drive the next several Chapters.
+that will drive the next several Chapters. Both questions together are `OT-001`, the first
+open thread in this build and the whole subject of Chapter 01.
 
 ---
 

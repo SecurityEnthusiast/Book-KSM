@@ -1474,7 +1474,7 @@ character and doubled in surface.
 **`SVC-02` still holds everything in plaintext,** and is still the single point whose
 compromise gives up every secret. `OT-011`, `AR-001`.
 
-**The database authenticates the client with a password.** SCRAM over TLS is an
+**The database authenticates the client with a password.** `OT-019`. SCRAM over TLS is an
 improvement over SCRAM alone, but `ACC-06` still proves itself with something it knows, which
 is the shape Chapter 03 spent a chapter arguing against. The certificate machinery now standing
 on `db01` is most of what would be needed to fix that, and it will be revisited.

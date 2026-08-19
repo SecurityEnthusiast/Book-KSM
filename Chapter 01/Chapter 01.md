@@ -699,7 +699,8 @@ sudo docker exec -d dev01 sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/lo
 ```
 
 Note carefully what you did *not* just do: the DEBUG line is still in
-`/var/log/paymentsvc.log`. Turning the tap off does not empty the bucket.
+`/var/log/paymentsvc.log`. Turning the tap off does not empty the bucket. That written line is
+`OT-008`, and it stays open for the rest of this build.
 
 ### 3.5 Copy 6, what your tools leave behind
 
@@ -1485,7 +1486,7 @@ record of any read ever happening.
 
 ## 11. Where this still hurts
 
-**Rotation is manual, breaking and unverifiable.** Changing `SEC-01` means an outage, a
+**Rotation is manual, breaking and unverifiable.** `OT-002`. Changing `SEC-01` means an outage, a
 hand-edit of a protected file inside a container, a second edit somewhere else, and no way to
 confirm you found every consumer. This is the top of the queue.
 
@@ -1493,28 +1494,28 @@ confirm you found every consumer. This is the top of the queue.
 answered it in this chapter by *going and looking*, and you found six copies on one machine
 you built yourself this afternoon. Now imagine four hundred machines and eleven years.
 
-**Root reads everything, and `docker` access is root.** Anyone with Docker on your laptop has
-a root shell on `dev01` via `docker exec -u 0`. No file permission touches this.
+**Root reads everything, and `docker` access is root.** `OT-004`. Anyone with Docker on your
+laptop has a root shell on `dev01` via `docker exec -u 0`. No file permission touches this.
 
-**Nothing decides, and nothing is recorded.** There is still no component anywhere that
+**Nothing decides, and nothing is recorded.** `OT-003`. There is still no component anywhere that
 grants or refuses a request for `SEC-01`, and no record that any read ever happened. If the
 password appeared on a paste site tomorrow you could not begin to narrow down where it came
 from.
 
-**Nothing verifies the server, and the transport is nobody's decision.** SCRAM protects the
-credential and nothing else. Whether anything encrypts the payment records is settled by a
-client library default and a distribution default that no file in this project names, and §5.6
-showed how little has to change for the entire conversation to become readable. Even when
-encryption is in play it defends against someone listening, not against someone answering: the
-app has no way to tell its database from anything that occupies port 5432. Today the audience is
-loopback; the day there are two machines, it is the network.
+**Nothing verifies the server, and the transport is nobody's decision.** `OT-005`. SCRAM
+protects the credential and nothing else. Whether anything encrypts the payment records is
+settled by a client library default and a distribution default that no file in this project
+names, and §5.6 showed how little has to change for the entire conversation to become readable.
+Even when encryption is in play it defends against someone listening, not against someone
+answering: the app has no way to tell its database from anything that occupies port 5432. Today
+the audience is loopback; the day there are two machines, it is the network.
 
-**`SEC-01` is immortal in process memory.** It sits in the heap for the life of the process,
-reachable by anything that can read that memory, surviving into core dumps, swap and
+**`SEC-01` is immortal in process memory.** `OT-006`. It sits in the heap for the life of the
+process, reachable by anything that can read that memory, surviving into core dumps, swap and
 hibernation images. Files were the easy part.
 
-**The secret's lifetime is unbounded.** It was created once, has never changed, and has no
-expiry. Every one of the sixteen copies is valid forever. Nothing in this system has any
+**The secret's lifetime is unbounded.** `OT-007`. It was created once, has never changed, and
+has no expiry. Every one of the sixteen copies is valid forever. Nothing in this system has any
 concept of a credential that stops working on its own.
 
 ---
@@ -1730,7 +1731,7 @@ sudo docker exec -d -u paymentsvc dev01 \
 ```
 
 Note that the app does **not** restart by itself. There is no service manager, so a reboot
-means a manual start. That is a gap, and it will be fixed by a pressure rather than by
+means a manual start. That is `OT-009`, and it will be fixed by a pressure rather than by
 tidiness.
 
 Optional housekeeping, the capture files hold payment data and one of them holds the

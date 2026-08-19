@@ -1293,17 +1293,17 @@ something first, and getting that first something onto the machine safely is unt
 `cat /var/lib/secretstore/secrets.json`. `OT-004`, unchanged, and now with a sharper edge: we
 have a policy that appears to constrain root and does not.
 
-**The store still audits itself.** The access log is written by the component it describes.
-Anything that compromises `SVC-02` can rewrite its own history. A real audit trail is append-only
-and lives somewhere the audited component cannot reach.
+**The store still audits itself.** `OT-015`. The access log is written by the component it
+describes. Anything that compromises `SVC-02` can rewrite its own history. A real audit trail
+is append-only and lives somewhere the audited component cannot reach.
 
 **Everything is still plaintext at rest.** `AR-001`, unchanged. Encrypting it needs a key, and
 a key is a secret with the same problem.
 
-**The policy is a static allow-list, hand-edited.** It has no notion of *why* an identity is
-permitted, no expiry, no review, and no way to express "may read during a deployment window".
-It also has to be edited on the host, which is the file-editing problem `OT-002` closed for
-secrets and has now quietly reappeared one level up, for rules.
+**The policy is a static allow-list, hand-edited.** `OT-016`. It has no notion of *why* an
+identity is permitted, no expiry, no review, and no way to express "may read during a
+deployment window". It also has to be edited on the host, which is the file-editing problem
+`OT-002` closed for secrets and has now quietly reappeared one level up, for rules.
 
 **`APP-01` still cannot start without `SVC-02`**, and nothing manages the ordering. `OT-012`,
 compounded by `OT-009`.
@@ -1407,11 +1407,12 @@ undo the point of the chapter.
 Prevented: a root-owned process asking the store, through its interface, for `paymentsvc-db` was
 identified as uid 0, matched against `POL-01`, refused, and recorded. Any agent, script or
 careless `docker exec` that goes through the front door is caught and leaves evidence. Not
-prevented: anything at all that root does to the filesystem. `cat /var/lib/secretstore/secrets.json`
-returns the credential with no policy consulted and no audit line written, because file-mode
-checks are enforced by the kernel and root is the documented exception (Chapter 01). The policy
-constrains requesters, not the machine's superuser, and reading the demonstration as "we
-contained root" would be exactly the kind of overclaim this build exists to avoid.
+prevented: anything at all that root does to the filesystem. `cat
+/var/lib/secretstore/secrets.json` returns the credential with no policy consulted and no audit
+line written, because file-mode checks are enforced by the kernel and root is the documented
+exception (Chapter 01). The policy constrains requesters, not the machine's superuser, and
+reading the demonstration as "we contained root" would be exactly the kind of overclaim this
+build exists to avoid.
 
 **Q6. The application no longer stores any credential for the store. Is that a security
 improvement or an accident of the mechanism?**

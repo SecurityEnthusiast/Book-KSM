@@ -36,7 +36,7 @@ pressure.
 | 13 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
 | 14 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
 | 15 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
-| 16 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside |  |
+| 16 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
 
 ---
 
