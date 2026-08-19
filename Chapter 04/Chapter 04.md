@@ -1104,7 +1104,8 @@ it. Stop the real database and put the impostor in its place on the network:
 sudo docker stop db01
 sudo docker run -d --rm --name impostor --network lab_default \
   --network-alias db01.lab.simurgh.example \
-  ksm/db01:chapter04 sleep infinity
+  --entrypoint sleep \
+  ksm/dev01:chapter01 infinity
 sudo docker cp db01/impostor.py impostor:/root/impostor.py
 sudo docker exec impostor sh -c "cd /root && \
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
@@ -1114,6 +1115,22 @@ sudo docker exec impostor sh -c "cd /root && \
 sudo docker exec -d impostor sh -c 'python3 /root/impostor.py /root/imp.crt /root/imp.key >/root/imp.log 2>&1'
 sleep 1
 ```
+
+Two flags in that `docker run` are load-bearing, and both are the kind of thing that fails in a
+way that does not name its own cause.
+
+**`--entrypoint sleep`.** Both lab images set an `ENTRYPOINT`, and both entrypoint scripts ignore
+whatever arguments they are handed and end in their own `exec sleep infinity`. Appending
+`sleep infinity` to a `docker run` therefore does nothing at all: the entrypoint runs, starts
+PostgreSQL, and takes port 5432. The impostor would then fail to bind the port it exists to
+occupy. Overriding the entrypoint is what gives us a bare machine.
+
+**`ksm/dev01:chapter01` rather than the database image.** `db01` was built without `python3` on
+purpose, because a database host has no business carrying an interpreter, and §2.2 says so. The
+impostor is fifty lines of Python, so it needs one. Reusing `dev01`'s image is the lab's
+convenience and it also happens to be the more honest picture: an attacker does not run your
+database image, and this attacker needs nothing but Python and `openssl`. The script lives under
+`db01/` in the lab folder because that is the host it impersonates, not the host it runs on.
 
 Make the application reconnect:
 
