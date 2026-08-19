@@ -1,6 +1,5 @@
 # Key and Secret Management: built, not described
-<img src="assets/cover.png.png" alt="Book Cover" width="500" height="750">
-
+![Key and Secret Management: built, not described](assets/cover.png)
 
 You learn this subject by building one system, from a password in a config file on a single
 laptop to a hybrid, multi-cloud, multi-tenant platform, and never skipping a wire.

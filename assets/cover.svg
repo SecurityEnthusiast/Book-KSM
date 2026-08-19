@@ -121,12 +121,13 @@
 <rect x="52" y="52" width="1496" height="2296" fill="none" stroke="#33415a" stroke-width="1" stroke-opacity="0.55"/>
 
 <g fill="#f1f5f9" font-family="'Helvetica Neue',Helvetica,Arial,'Liberation Sans','DejaVu Sans',sans-serif">
-  <line x1="140" y1="228" x2="332" y2="228" stroke="#f59e0b" stroke-width="3"/>
-  <text x="140" y="386" font-size="92" font-weight="700" letter-spacing="1">KEY AND</text>
-  <text x="140" y="498" font-size="92" font-weight="700" letter-spacing="1">SECRET MANAGEMENT</text>
-  <text x="146" y="600" font-size="50" font-style="italic" fill="#f0a52a" font-family="Georgia,'Times New Roman','Liberation Serif','DejaVu Serif',serif">built, not described</text>
+  <line x1="140" y1="1335" x2="332" y2="1335" stroke="#f59e0b" stroke-width="3"/>
+  <text x="140" y="1186" font-size="92" font-weight="700" letter-spacing="1">KEY AND</text>
+  <text x="140" y="1298" font-size="92" font-weight="700" letter-spacing="1">SECRET MANAGEMENT</text>
+  <text x="146" y="1400" font-size="50" font-style="italic" fill="#f0a52a" font-family="Georgia,'Times New Roman','Liberation Serif','DejaVu Serif',serif">built, not described</text>
 
-  <line x1="140" y1="2192" x2="1460" y2="2192" stroke="#3d4c63" stroke-width="1"/>
-  <text x="140" y="2268" font-size="31" letter-spacing="8" fill="#a8b6c8">MEGHDAD&#160;SHAMSAEI</text>
+  <!-- <line x1="140" y1="2192" x2="1460" y2="2192" stroke="#3d4c63" stroke-width="1"/> -->
+  <line x1="140" y1="1450" x2="332" y2="1450" stroke="#f59e0b" stroke-width="3"/>
+  <text x="140" y="1510" font-size="25" letter-spacing="8" fill="#a8b6c8">MEGHDAD&#160;SHAMSAEI</text>
 </g>
 </svg>
