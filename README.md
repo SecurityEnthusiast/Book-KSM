@@ -1,5 +1,5 @@
-# Key and Secret Management: built, not described
-![Key and Secret Management: built, not described](assets/cover.png)
+# Key, PKI and Secret Management: built, not described
+![Key, PKI and Secret Management: built, not described](assets/cover.jpg)
 
 You learn this subject by building one system, from a password in a config file on a single
 laptop to a hybrid, multi-cloud, multi-tenant platform, and never skipping a wire.
@@ -35,9 +35,13 @@ Each chapter is a folder holding the chapter and everything needed to run its la
 | **02** | [Rotating a credential that six systems are holding](Chapter%2002/Chapter%2002.md) | Rotation is manual, breaks things, cannot be verified, and you have no inventory of who holds copies. | A proof that no ordering of two writes avoids an outage; one authoritative place holding the credential; zero-downtime rotation with a verification step; and sixteen leaked copies rendered worthless without deleting any of them. |
 | **03** | [Who is asking?](Chapter%2003/Chapter%2003.md) | The store answers anyone who can open a socket to it, and the "consumer" in its audit log is a string the caller wrote about itself. | A store that learns who is calling from the kernel rather than from the caller, refuses everything else against a written policy, and records every decision as fact. The application ends up holding no credential at all. |
 | **04** | [The database moves out](Chapter%2004/Chapter%2004.md) | The data and every control protecting it are on one machine, so root there bypasses all of it. Moving the database opens the connection to the network. | A second host added as a compose service; the first key pair and certificate this build owns; and a demonstration that `sslmode=require` gives you an encrypted conversation with the attacker, while two other words refuse it before saying a thing. |
+| **05** | [The certificate nobody can replace](Chapter%2005/Chapter%2005.md) | The trust anchor is a file somebody copied by hand, and re-issuing the server's certificate breaks every client that pinned it. | A third machine holding one key; a certificate authority whose root the client pins instead of the server; a leaf rejected for its Subject Alternative Name while its Common Name reads perfectly; and a re-issued server certificate that costs the client nothing. |
 
 *More chapters are published as they are finished. Work them in order: both the system and
 the lab accumulate.*
+
+**[Reference: every open thread and every decision](Reference.md)** lists all of them with the
+chapter that created each, if you meet an `OT-` or `D-` you do not recognise.
 
 ---
 
@@ -62,7 +66,7 @@ Engine install needs, because the daemon socket is owned by root. If your user i
 
 ## Running the labs
 
-Start in Chapter 00. Every chapter is run from its own `lab/` folder, and there is no separate
+Start in Chapter 01. Every chapter is run from its own `lab/` folder, and there is no separate
 scratch directory to create and nothing to copy anywhere:
 
 ```bash
@@ -77,10 +81,10 @@ without it and come back when something surprises you.
 
 ### The lab lives in the containers
 
-`dev01` is created in Chapter 01 and `db01` in Chapter 04, each once, and neither is recreated
-afterwards. Later chapters work from their own folders and deploy into those running containers
-with `docker cp`. When a chapter does add a machine it builds only that one, by name:
-`sudo docker compose up -d --build db01`.
+`dev01` is created in Chapter 01, `db01` in Chapter 04 and `ca01` in Chapter 05, each once, and
+none of them is recreated afterwards. Later chapters work from their own folders and deploy
+into those running containers with `docker cp`. When a chapter does add a machine it builds
+only that one, by name: `sudo docker compose up -d --build db01`.
 
 This is why chapters from 02 onward open with a state check. Building from a later chapter's
 folder gives you a container that reports `healthy` and is not in that chapter's starting state,
@@ -138,6 +142,14 @@ Two conventions worth knowing before you start:
 **Everything is named, and names never change.** `HOST-01`, `APP-01`, `SEC-01`, `ACC-03`. The
 ID stays fixed even when the thing it names is transformed, so you can always trace any
 component back to the chapter and the pressure that created it.
+
+**Identifiers are stable, and each is explained where it first appears.** `HOST-`, `ACC-`,
+`SEC-`, `KEY-`, `CERT-` and the rest name objects. `OT-` is an open problem the build has not
+solved yet, `D-` a decision with its alternatives and what would reverse it, and `AR-` a risk
+accepted on purpose. A chapter names the threads it creates at the end, under *Where this still
+hurts*, and its decisions under *Decisions we made*, so a later reference such as `OT-017`
+always traces back to a chapter that stated it in words. Chapter 00 §4 sets the rules, and
+[Reference.md](Reference.md) indexes every one.
 
 **Nothing is claimed that is not shown.** Where a chapter demonstrates something, you run it.
 Where it enumerates something it has not demonstrated, it says so plainly and names the

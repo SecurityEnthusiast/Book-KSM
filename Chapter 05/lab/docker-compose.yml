@@ -1,0 +1,116 @@
+# The lab substrate: one container per "machine" in the ledger.
+#
+# Bring each machine up ONCE, in the chapter that introduces it, naming the
+# service so you only build that one:
+#     Chapter 01:  docker compose up -d --build dev01
+#     Chapter 04:  docker compose up -d --build db01
+#     Chapter 05:  docker compose up -d --build ca01
+#
+# After that, chapters deploy into the running container with `docker cp`.
+# Rebuilding is not forbidden, it is a reset: a rebuilt dev01 starts from
+# Chapter 01's image again and loses everything the later chapters built
+# inside it, which is OS accounts, file modes, database rows and some
+# deliberately left log lines. If you do rebuild, you are starting the lab
+# over and need to work the chapters forward again.
+#
+# This file is identical in every chapter's lab/ folder until a chapter
+# adds a machine, so `docker compose up -d` from any of them is a no-op on
+# a lab that is already running.
+#
+# Processes inside the containers are still started by hand. That is not an
+# oversight: these hosts have no service manager, and giving them one is a
+# chapter of its own.
+
+name: lab
+
+services:
+  dev01:                                    # HOST-01, where the app and the secret store live
+    build:
+      context: ./dev01
+      dockerfile: Dockerfile
+    image: ksm/dev01:chapter01              # named for the chapter that builds it
+    container_name: dev01
+    hostname: dev01.lab.simurgh.example
+
+    # Published on the laptop's loopback only, never on the network. The
+    # difference between 127.0.0.1:8080:8080 and 8080:8080 is the difference
+    # between a service your laptop can reach and one the coffee shop can.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # tcpdump needs this to put an interface into the mode it wants.
+    cap_add:
+      - NET_ADMIN
+
+    # Reap zombies and forward signals. The entrypoint ends in
+    # `sleep infinity`, which is not a real init.
+    init: true
+
+    # Substrate only: reports, gates nothing.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+    stop_grace_period: 5s
+
+  db01:                                     # HOST-02, the database, added in Chapter 04
+    build:
+      context: ./db01
+      dockerfile: Dockerfile
+    image: ksm/db01:chapter04
+    container_name: db01
+    hostname: db01.lab.simurgh.example
+
+    # The name the certificate is issued for, and the name APP-01 connects
+    # to. Compose resolves the service name `db01` by default; this alias
+    # adds the fully qualified name so `sslmode=verify-full` has something
+    # to match against.
+    networks:
+      default:
+        aliases:
+          - db01.lab.simurgh.example
+
+    # No `ports:` at all. The database is reachable from dev01 across the
+    # lab network and from nowhere else. Chapter 01 published 8080 because
+    # you need to curl it; nothing outside the lab has any business
+    # reaching 5432.
+
+    cap_add:
+      - NET_ADMIN
+
+    init: true
+
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+    stop_grace_period: 5s
+
+  ca01:                                     # HOST-03, the certificate authority, added in Chapter 05
+    build:
+      context: ./ca01
+      dockerfile: Dockerfile
+    image: ksm/ca01:chapter05
+    container_name: ca01
+    hostname: ca01.lab.simurgh.example
+
+    # No ports, and no network alias. Nothing connects to this machine.
+    # An authority that answers requests is a service with an attack
+    # surface and an issuance policy; this one is a key, a procedure and
+    # an operator, which is all OT-017 asked for. When something needs to
+    # request a certificate without a human, that is its own chapter.
+
+    init: true
+
+    # No healthcheck. There is no process to be healthy: the CA is files
+    # on a disk and a script somebody runs. `docker compose ps` will show
+    # it as running because the entrypoint sleeps, and that is the whole
+    # truth about it.
+
+    stop_grace_period: 5s

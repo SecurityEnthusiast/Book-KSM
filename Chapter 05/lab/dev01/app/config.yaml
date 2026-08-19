@@ -1,0 +1,21 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: db01.lab.simurgh.example
+  port: 5432
+  name: paymentsdb
+  sslmode: verify-full
+  # Chapter 05: the anchor is the authority, not the server.
+  #
+  # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01
+  # presents. Pinning that meant re-issuing db01's certificate broke this
+  # client, which is OT-017. Now it is CERT-02, the root, and db01 can be
+  # re-issued as often as it likes without this line or this file changing.
+  #
+  # The path is the only thing that had to change on the client. That is
+  # the whole payoff, and it is a one-time cost.
+  sslrootcert: /opt/paymentsvc/ca.crt
+secret_store:
+  socket: /run/secretstore/sock
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080

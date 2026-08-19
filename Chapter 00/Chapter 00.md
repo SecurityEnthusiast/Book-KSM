@@ -309,6 +309,15 @@ So the rules are fixed now, and the short version is:
 - **Every object gets a stable ID**: `HOST-`, `NET-`, `ACC-`, `APP-`, `SVC-`, `SEC-`, `KEY-`,
   `CERT-`, `POL-`, `CLD-`, `TEN-`, `PROC-`, numbered in ascending order across the whole
   build and never reused, even after something is retired.
+- **Two more prefixes name things that are not objects.** `OT-` is an **open thread**: a problem
+  this build knows about and has not solved. `D-` is a **decision**, recorded with the options
+  considered and what would reverse it. `AR-` is the rarer **accepted risk**, something chosen
+  rather than a problem awaiting a fix. Each is numbered like everything else and never reused.
+- **Every identifier is introduced in full where it first appears.** A chapter names the threads
+  it creates at its end, under *Where this still hurts*, and its decisions under *Decisions we
+  made*. So a bare reference like `OT-017` in a later chapter always traces back to a chapter
+  that stated it in plain words. The cover's reference page indexes every thread and decision
+  with the chapter that created it, so nothing here expects you to have memorised a code.
 - **Hostnames** follow `<role><NN>.<zone>.simurgh.example`, `dev01`, `vault01`, `ca01`,
   `hsm01`. The `.example` top-level domain is reserved by RFC 2606 for documentation and can
   never collide with a real domain, which is exactly what we want. `simurgh` is the name
