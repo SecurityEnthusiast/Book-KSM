@@ -993,22 +993,37 @@ It fails. Check why:
 sudo docker exec db01 tail -5 /var/log/postgresql/postgresql-15-main.log
 ```
 
-Expected, ending in a refusal to start because the private key file has group or world access,
-naming the modes it will accept.
+Expected, ending in:
+
+```
+FATAL:  could not load private key file "/etc/postgresql/15/main/server.key": Permission denied
+LOG:  database system is shut down
+```
+
+Now look at the file it could not read:
 
 ```bash
 sudo docker exec db01 ls -l /etc/postgresql/15/main/server.key
 ```
 
-Expected: `-rw-r--r--`, mode `0644`, owner `root`.
+Expected: `-rw-------`, mode `0600`, owner `root`.
 
-`0644`. Chapter 01 opened with that number and the observation that nobody chooses it: `openssl`
-produced it here exactly as `COPY` and `cp` produced it there. What is different is the
-consequence. In Chapter 01 a `0644` secret was readable by every account and the system worked
-perfectly, which is what made it dangerous. Here PostgreSQL refuses to run at all.
+Read those two outputs together, because what matters is the thing that is *not* wrong. The mode
+is correct. `openssl` is one of the very few tools that refuses to let your umask decide the mode
+of a private key: it writes `0600` whatever your shell would have produced, while the certificate
+beside it obeys the umask like any ordinary file. Chapter 01 §3.1 was about a permission nobody
+chose. Here the tool chose, and chose well.
 
-That is a control that fails closed, and it is worth noticing how rare that is in this build so
-far. Every other lesson has been about something that worked while being wrong.
+It failed anyway, because a mode is only half an answer. The file belongs to `root` and the
+process trying to read it runs as `postgres`. That is Chapter 01 §7.1 returning one layer up:
+`chmod` says nothing until you have said *whose* access you are describing. There the file was
+root-owned and the reader was root, so the permission was empty. Here the file is root-owned and
+the reader is not, so the permission is a wall.
+
+Note also what the error does not say. It does not mention modes, or list the permissions it
+would accept. PostgreSQL does refuse a key file that is group or world readable, and that check
+never fired here, because there was nothing wrong for it to catch. The message is the ordinary
+`EACCES` from Chapter 01 §7.2, arriving from a different direction.
 
 ```bash
 sudo docker exec db01 chown postgres:postgres /etc/postgresql/15/main/server.key
@@ -1019,9 +1034,11 @@ sudo docker exec db01 su postgres -c "psql -tAc 'SHOW ssl'"
 
 Expected: `on`.
 
-`0600` and not `0400`, because PostgreSQL requires the key to be owned by the user running the
-server and readable by it, and `0600` is what the documentation specifies. The certificate
-stays `0644`: it is a public key with a name attached, and it is meant to be copied.
+The `chown` is the operative half; the `chmod` restates a mode `openssl` had already set, and it
+is worth running anyway so the end state is stated rather than assumed. `0600` and not `0400`,
+because PostgreSQL wants the key owned by the user running the server and readable by it, and
+`0600` is what the documentation specifies. The certificate stays `0644`: it is a public key
+with a name attached, and it is meant to be copied.
 
 ### 6.3 Give the client the trust anchor
 
@@ -1425,8 +1442,10 @@ kind of object: credentials and now certificates.
   vouches for itself, which is worth nothing until a client is told to trust that exact one.
 - Generate the private key on the machine that uses it. A key that never travels cannot be
   intercepted, logged or forgotten in a shell history.
-- PostgreSQL refuses to start with a group-readable key file. That is the same `0644` from
-  Chapter 01, this time hitting a control that fails closed instead of one that fails silently.
+- `openssl` writes a private key `0600` whatever your umask says, which is rarer than it sounds
+  and the opposite of Chapter 01's `0644`. PostgreSQL refused to start anyway, because the file
+  was owned by `root` and the server runs as `postgres`. A correct mode on the wrong owner is
+  Chapter 01 §7.1 again: a permission needs an identity to hang off.
 - The certificate is `0644` and the trust anchor copy is `0444`, both deliberately public. What
   they need is **integrity**, not confidentiality, and a file mode gives you the wrong one.
 - **`sslmode=require` encrypts your conversation with the attacker.** It asks for encryption
@@ -1530,7 +1549,9 @@ exists, which is the next thing this build is going to want.
 `0444`? Answer in terms of properties, not modes.**
 
 The key needs **confidentiality**: anyone who reads it can impersonate the server, so exactly
-one identity may see it, and PostgreSQL enforces that by refusing to start otherwise. The
+one identity may see it. PostgreSQL enforces both halves of that, refusing to start on a key
+file that is group or world readable, and simply failing to open one owned by somebody else,
+which is the half §6.2 actually hit. The
 certificate needs neither confidentiality nor much else on the server; it is a public key with a
 name, handed to every client that connects, so restricting it protects nothing. The client's
 copy needs **integrity**: reading it gains an attacker nothing, but replacing it redirects every
