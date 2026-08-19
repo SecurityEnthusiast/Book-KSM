@@ -1,0 +1,12 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: db01.lab.simurgh.example
+  port: 5432
+  name: paymentsdb
+  sslmode: verify-full
+  sslrootcert: /opt/paymentsvc/db01.crt
+secret_store:
+  socket: /run/secretstore/sock
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080

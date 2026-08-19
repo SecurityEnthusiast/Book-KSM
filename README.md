@@ -62,7 +62,7 @@ Engine install needs, because the daemon socket is owned by root. If your user i
 
 ## Running the labs
 
-Start in Chapter 01. Every chapter is run from its own `lab/` folder, and there is no separate
+Start in Chapter 00. Every chapter is run from its own `lab/` folder, and there is no separate
 scratch directory to create and nothing to copy anywhere:
 
 ```bash

@@ -1,0 +1,59 @@
+# The lab substrate: one container per "machine" in the ledger.
+#
+# Bring each machine up ONCE, in the chapter that introduces it, naming the
+# service so you only build that one:
+#     Chapter 01:  docker compose up -d --build dev01
+#     Chapter 04:  docker compose up -d --build db01
+#
+# After that, chapters deploy into the running container with `docker cp`.
+# Rebuilding is not forbidden, it is a reset: a rebuilt dev01 starts from
+# Chapter 01's image again and loses everything the later chapters built
+# inside it, which is OS accounts, file modes, database rows and some
+# deliberately left log lines. If you do rebuild, you are starting the lab
+# over and need to work the chapters forward again.
+#
+# This file is identical in every chapter's lab/ folder until a chapter
+# adds a machine, so `docker compose up -d` from any of them is a no-op on
+# a lab that is already running.
+#
+# Processes inside the containers are still started by hand. That is not an
+# oversight: these hosts have no service manager, and giving them one is a
+# chapter of its own.
+
+name: lab
+
+services:
+  dev01:                                    # HOST-01, where the app and the secret store live
+    build:
+      context: ./dev01
+      dockerfile: Dockerfile
+    image: ksm/dev01:chapter01              # named for the chapter that builds it
+    container_name: dev01
+    hostname: dev01.lab.simurgh.example
+
+    # Published on the laptop's loopback only, never on the network. The
+    # difference between 127.0.0.1:8080:8080 and 8080:8080 is the difference
+    # between a service your laptop can reach and one the coffee shop can.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # tcpdump needs this to put the loopback interface into the mode it
+    # wants. Chapter 01 section 5 uses it.
+    cap_add:
+      - NET_ADMIN
+
+    # Reap zombies and forward signals. The entrypoint ends in
+    # `sleep infinity`, which is not a real init.
+    init: true
+
+    # Substrate only: tells you whether PostgreSQL is accepting connections,
+    # so `docker compose ps` means something. It deliberately gates nothing,
+    # because nothing in this build starts automatically yet.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+    stop_grace_period: 5s

@@ -1,0 +1,10 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: localhost
+  port: 5432
+  name: paymentsdb
+secret_store:
+  url: http://127.0.0.1:8300
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080

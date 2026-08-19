@@ -1,0 +1,9 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: localhost
+  port: 5432
+  user: paymentsvc
+  password: hunter2-payments-prod          # <-- SEC-01
+  name: paymentsdb
+server:
+  listen: 0.0.0.0:8080
