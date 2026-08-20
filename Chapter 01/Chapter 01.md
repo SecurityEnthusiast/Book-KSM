@@ -552,6 +552,7 @@ Expected:
 ```
 -rw-r--r-- root:root  196 /opt/paymentsvc/config.yaml
 -rw-r--r-- root:root  612 /opt/paymentsvc/initdb.sql
+-rw-r--r-- root root 2937 Aug 20 10:53 paymentsvc.py
 ```
 
 `-rw-r--r--` is `0644`: readable by every account on the machine.
