@@ -36,6 +36,8 @@ Each chapter is a folder holding the chapter and everything needed to run its la
 | **03** | [Who is asking?](Chapter%2003/Chapter%2003.md) | The store answers anyone who can open a socket to it, and the "consumer" in its audit log is a string the caller wrote about itself. | A store that learns who is calling from the kernel rather than from the caller, refuses everything else against a written policy, and records every decision as fact. The application ends up holding no credential at all. |
 | **04** | [The database moves out](Chapter%2004/Chapter%2004.md) | The data and every control protecting it are on one machine, so root there bypasses all of it. Moving the database opens the connection to the network. | A second host added as a compose service; the first key pair and certificate this build owns; and a demonstration that `sslmode=require` gives you an encrypted conversation with the attacker, while two other words refuse it before saying a thing. |
 | **05** | [The certificate nobody can replace](Chapter%2005/Chapter%2005.md) | The trust anchor is a file somebody copied by hand, and re-issuing the server's certificate breaks every client that pinned it. | A third machine holding one key; a certificate authority whose root the client pins instead of the server; a leaf rejected for its Subject Alternative Name while its Common Name reads perfectly; and a re-issued server certificate that costs the client nothing. |
+| **06** | [The key that cannot be copied](Chapter%2006/Chapter%2006.md) | The authority's key is a file, so two `cat` commands forge a certificate for any name in the estate. | A key generated inside a PKCS#11 token that reports `never extractable` and `local`; an `openssl` that signs with a key it is never given; a migration onto a new root with no outage; and an honest account of the one attacker a software token does not stop. |
+| **07** | [The key moves out](Chapter%2007/Chapter%2007.md) | The token refuses to export the key, and `tar` carries the whole token away and signs with it elsewhere. | A fourth machine that runs one service and carries no editor; a signing API that takes the caller's identity from the TLS certificate and checks it against a policy; a certificate this build's own authority issued, refused; and three roots in three chapters, which turns out to be the real finding. |
 
 *More chapters are published as they are finished. Work them in order: both the system and
 the lab accumulate.*
@@ -81,10 +83,11 @@ without it and come back when something surprises you.
 
 ### The lab lives in the containers
 
-`dev01` is created in Chapter 01, `db01` in Chapter 04 and `ca01` in Chapter 05, each once, and
-none of them is recreated afterwards. Later chapters work from their own folders and deploy
-into those running containers with `docker cp`. When a chapter does add a machine it builds
-only that one, by name: `sudo docker compose up -d --build db01`.
+`dev01` is created in Chapter 01, `db01` in Chapter 04, `ca01` in Chapter 05 and `hsm01` in
+Chapter 07, each once. Only `ca01` is rebuilt, in Chapters 06 and 07, and only because
+everything on it is being replaced. Later chapters work from their own folders and deploy into
+those running containers with `docker cp`. When a chapter does add a machine it builds only
+that one, by name: `sudo docker compose up -d --build db01`.
 
 This is why chapters from 02 onward open with a state check. Building from a later chapter's
 folder gives you a container that reports `healthy` and is not in that chapter's starting state,
@@ -167,5 +170,4 @@ credential in this repository is fake and planted to be found, including the one
 history. And the labs spend most of their time in states you would never ship, because that is
 what they are for, so run them in the throwaway containers and do not lift a snippet from the
 middle of a chapter without reading what the chapter says about it next.
-
 

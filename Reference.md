@@ -14,33 +14,37 @@ awaiting a fix. Chapter 00 §4 sets the rules, and the object prefixes (`HOST-`,
 
 ---
 
-## Open threads (16)
+## Open threads (20)
 
 In the order that decides what gets built next. The top entry is the next chapter's
 pressure.
 
 | # | ID | What is wrong | Raised |
 |---|---|---|---|
-| 1 | `OT-021` | `KEY-02` forges any identity in the estate, and a file mode is what stops it | Chapter 05 §12 |
-| 2 | `OT-022` | Nothing can be revoked | Chapter 05 §12 |
-| 3 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
-| 4 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
-| 5 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
-| 6 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
-| 7 | `OT-004` | Root reads everything | Chapter 01 §8 |
-| 8 | `OT-006` | `SEC-01` is immortal in process memory | Chapter 01 §6 |
-| 9 | `OT-007` | Nothing expires | Chapter 01 §11 |
-| 10 | `OT-015` | The store audits itself | Chapter 03 §11 |
-| 11 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
-| 12 | `OT-019` | The database still authenticates the application with a password | Chapter 04 §12 |
-| 13 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
-| 14 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
-| 15 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
-| 16 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
+| 1 | `OT-028` | Three roots in three chapters, because custody keeps being decided late | Chapter 07 §9 |
+| 2 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
+| 3 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
+| 4 | `OT-027` | One person can sign anything | Chapter 06 §12 |
+| 5 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
+| 6 | `OT-022` | Nothing can be revoked | Chapter 05 §12 |
+| 7 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
+| 8 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
+| 9 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
+| 10 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
+| 11 | `OT-004` | Root reads everything | Chapter 01 §8 |
+| 12 | `OT-006` | `SEC-01` is immortal in process memory | Chapter 01 §6 |
+| 13 | `OT-007` | Nothing expires | Chapter 01 §11 |
+| 14 | `OT-015` | The store audits itself | Chapter 03 §11 |
+| 15 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
+| 16 | `OT-019` | The database still authenticates the application with a password | Chapter 04 §12 |
+| 17 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
+| 18 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
+| 19 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
+| 20 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
 
 ---
 
-## Closed threads (7)
+## Closed threads (8)
 
 Kept because the lineage is the point: you can trace any part of the final system back
 to the problem that forced it.
@@ -54,10 +58,11 @@ to the problem that forced it.
 | `OT-010` | The store hands the secret to anything that can open a socket | Chapter 02 §10 | Chapter 03 |
 | `OT-013` | The credential crosses the wire in plain HTTP | Chapter 02 §10 | Chapter 03, on one host |
 | `OT-017` | The trust anchor is hand-copied, and pinning does not survive renewal | Chapter 04 §10 | Chapter 05 |
+| `OT-021` | `KEY-02` forges any identity in the estate, and a file mode is what stops it | Chapter 05 §12 | Chapter 06 |
 
 ---
 
-## Decisions (36)
+## Decisions (46)
 
 Every one records the alternatives and what would reverse it. Where a later chapter
 overturned an earlier decision, both are kept. Decisions about how the book itself is
@@ -101,3 +106,13 @@ written are not listed here.
 | `D-046` | Ten-year root, ninety-day leaves | Chapter 05 |
 | `D-047` | The Subject Alternative Name is the name; the Common Name is decoration | Chapter 05 |
 | `D-048` | Chapter 05 discloses the `dev01/Dockerfile` divergence rather than resolving it | Chapter 05 |
+| `D-049` | SoftHSM now, hardware later | Chapter 06 |
+| `D-050` | Generate a new key rather than import `KEY-02` | Chapter 06 |
+| `D-051` | Address tokens by label, never by slot | Chapter 06 |
+| `D-052` | The OpenSSL engine, not the provider | Chapter 06 |
+| `D-053` | Join the `softhsm` group rather than chown the package's directories | Chapter 06 |
+| `D-054` | Give the key its own host rather than harden `ca01` | Chapter 07 |
+| `D-055` | `SVC-03` is a network service, not a shared filesystem or an SSH command | Chapter 07 |
+| `D-056` | Identity comes from the client certificate, never from the request | Chapter 07 |
+| `D-057` | `sign-leaf` gains `--client` rather than issuing both usages by default | Chapter 07 |
+| `D-058` | Generate `KEY-04` on `hsm01` rather than move the token | Chapter 07 |
