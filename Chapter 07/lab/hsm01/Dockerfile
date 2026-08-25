@@ -46,6 +46,12 @@ RUN useradd --system --home-dir /var/lib/ca --shell /usr/sbin/nologin signd \
 
 # /var/lib/ca          CERT-04 and the record of what has been issued
 # /var/lib/ca/issued   a copy of every certificate this CA has ever signed
+# /var/lib/ca/requests incoming CSRs. Not /tmp: a CSR is public, so this is
+#                      not about secrecy, it is that /tmp is world-writable
+#                      and anything local could swap a request between it
+#                      being written and being signed. On the machine that
+#                      holds the key, do not hand the signer a file every
+#                      process on the host can replace.
 # The token itself lives under /var/lib/softhsm/tokens, which the package
 # owns and which `ca` reaches through group membership above. The PINs live
 # in /var/lib/ca, which `ca` owns outright, rather than in /etc/softhsm,
@@ -53,9 +59,9 @@ RUN useradd --system --home-dir /var/lib/ca --shell /usr/sbin/nologin signd \
 #
 # Note what is no longer here: there is no ca.key. From Chapter 06 the
 # private key is not a file this Dockerfile could create, chmod or copy.
-RUN mkdir -p /var/lib/ca/issued /etc/signd \
+RUN mkdir -p /var/lib/ca/issued /var/lib/ca/requests /etc/signd \
  && chown -R signd:signd /var/lib/ca /etc/signd \
- && chmod 0700 /var/lib/ca /var/lib/ca/issued \
+ && chmod 0700 /var/lib/ca /var/lib/ca/issued /var/lib/ca/requests \
  && touch /var/log/signd-audit.log /var/log/signd.out \
  && chown signd:signd /var/log/signd-audit.log /var/log/signd.out \
  && chmod 0600 /var/log/signd-audit.log \

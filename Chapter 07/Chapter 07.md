@@ -296,6 +296,12 @@ RUN useradd --system --home-dir /var/lib/ca --shell /usr/sbin/nologin signd \
 
 # /var/lib/ca          CERT-04 and the record of what has been issued
 # /var/lib/ca/issued   a copy of every certificate this CA has ever signed
+# /var/lib/ca/requests incoming CSRs. Not /tmp: a CSR is public, so this is
+#                      not about secrecy, it is that /tmp is world-writable
+#                      and anything local could swap a request between it
+#                      being written and being signed. On the machine that
+#                      holds the key, do not hand the signer a file every
+#                      process on the host can replace.
 # The token itself lives under /var/lib/softhsm/tokens, which the package
 # owns and which `ca` reaches through group membership above. The PINs live
 # in /var/lib/ca, which `ca` owns outright, rather than in /etc/softhsm,
@@ -303,9 +309,9 @@ RUN useradd --system --home-dir /var/lib/ca --shell /usr/sbin/nologin signd \
 #
 # Note what is no longer here: there is no ca.key. From Chapter 06 the
 # private key is not a file this Dockerfile could create, chmod or copy.
-RUN mkdir -p /var/lib/ca/issued /etc/signd \
+RUN mkdir -p /var/lib/ca/issued /var/lib/ca/requests /etc/signd \
  && chown -R signd:signd /var/lib/ca /etc/signd \
- && chmod 0700 /var/lib/ca /var/lib/ca/issued \
+ && chmod 0700 /var/lib/ca /var/lib/ca/issued /var/lib/ca/requests \
  && touch /var/log/signd-audit.log /var/log/signd.out \
  && chown signd:signd /var/log/signd-audit.log /var/log/signd.out \
  && chmod 0600 /var/log/signd-audit.log \
@@ -665,15 +671,15 @@ sudo docker exec hsm01 sh -c '
       ca01)  cn=ca01.lab.simurgh.example ;;
     esac
     openssl ecparam -name prime256v1 -genkey -noout -out /var/lib/ca/$who.key
-    openssl req -new -key /var/lib/ca/$who.key -out /tmp/$who.csr -subj "/CN=$cn"
-    chown signd:signd /var/lib/ca/$who.key /tmp/$who.csr
+    openssl req -new -key /var/lib/ca/$who.key -out /var/lib/ca/requests/$who.csr -subj "/CN=$cn"
+    chown signd:signd /var/lib/ca/$who.key /var/lib/ca/requests/$who.csr
   done'
 ```
 
 Now sign them. The server certificate first, which is the ordinary case:
 
 ```bash
-sudo docker exec -u signd hsm01 sign-leaf /tmp/signd.csr hsm01.lab.simurgh.example
+sudo docker exec -u signd hsm01 sign-leaf /var/lib/ca/requests/signd.csr hsm01.lab.simurgh.example
 ```
 
 Expected: `issued: /var/lib/ca/issued/hsm01.lab.simurgh.example.crt`, ninety days, and
@@ -684,7 +690,7 @@ Expected: `issued: /var/lib/ca/issued/hsm01.lab.simurgh.example.crt`, ninety day
 Do the client certificate the same way, because it is the same command:
 
 ```bash
-sudo docker exec -u signd hsm01 sign-leaf /tmp/ca01.csr ca01.lab.simurgh.example
+sudo docker exec -u signd hsm01 sign-leaf /var/lib/ca/requests/ca01.csr ca01.lab.simurgh.example
 sudo docker exec hsm01 openssl x509 -noout -ext extendedKeyUsage \
     -in /var/lib/ca/issued/ca01.lab.simurgh.example.crt
 ```
@@ -809,7 +815,7 @@ openssl x509 -in "$OUT" -noout -ext subjectAltName,extendedKeyUsage
 A certificate for a client has to say so:
 
 ```bash
-sudo docker exec -u signd hsm01 sign-leaf --client /tmp/ca01.csr ca01.lab.simurgh.example
+sudo docker exec -u signd hsm01 sign-leaf --client /var/lib/ca/requests/ca01.csr ca01.lab.simurgh.example
 sudo docker exec hsm01 openssl x509 -noout -ext extendedKeyUsage \
     -in /var/lib/ca/issued/ca01.lab.simurgh.example.crt
 ```
@@ -1105,9 +1111,9 @@ RUN useradd --system --home-dir /opt/ca-client --shell /usr/sbin/nologin ca
 #
 # 0755, and only the key is restricted. Everything else here is a
 # certificate, and a certificate is public by construction.
-RUN mkdir -p /opt/ca-client \
+RUN mkdir -p /opt/ca-client/requests \
  && chown -R ca:ca /opt/ca-client \
- && chmod 0755 /opt/ca-client
+ && chmod 0755 /opt/ca-client /opt/ca-client/requests
 
 COPY request-cert.sh /usr/local/bin/request-cert
 COPY entrypoint.sh   /usr/local/bin/entrypoint.sh
@@ -1239,8 +1245,8 @@ sudo docker exec db01 sh -c '
   openssl req -new -key /etc/postgresql/15/main/server.key \
     -out /tmp/db01.csr -subj "/CN=db01.lab.simurgh.example"'
 sudo docker cp db01:/tmp/db01.csr /tmp/db01.csr
-sudo docker cp /tmp/db01.csr ca01:/tmp/db01.csr
-sudo docker exec -u ca ca01 request-cert /tmp/db01.csr db01.lab.simurgh.example db01
+sudo docker cp /tmp/db01.csr ca01:/opt/ca-client/requests/db01.csr
+sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/db01.csr db01.lab.simurgh.example db01
 ```
 
 Expected: a PEM certificate on standard output.
@@ -1270,12 +1276,12 @@ certificate. It is a certificate **this authority issued**, to a real host, corr
 
 ```bash
 sudo docker exec hsm01 sh -c '
-  openssl ecparam -name prime256v1 -genkey -noout -out /tmp/rogue.key
-  openssl req -new -key /tmp/rogue.key -out /tmp/rogue.csr -subj "/CN=rogue.lab.simurgh.example"
-  chown signd:signd /tmp/rogue.csr'
-sudo docker exec -u signd hsm01 sign-leaf --client /tmp/rogue.csr rogue.lab.simurgh.example
+  openssl ecparam -name prime256v1 -genkey -noout -out /var/lib/ca/requests/rogue.key
+  openssl req -new -key /var/lib/ca/requests/rogue.key -out /var/lib/ca/requests/rogue.csr -subj "/CN=rogue.lab.simurgh.example"
+  chown signd:signd /var/lib/ca/requests/rogue.csr'
+sudo docker exec -u signd hsm01 sign-leaf --client /var/lib/ca/requests/rogue.csr rogue.lab.simurgh.example
 sudo docker cp hsm01:/var/lib/ca/issued/rogue.lab.simurgh.example.crt /tmp/rogue.crt
-sudo docker cp hsm01:/tmp/rogue.key /tmp/rogue.key
+sudo docker cp hsm01:/var/lib/ca/requests/rogue.key /tmp/rogue.key
 sudo docker cp /tmp/rogue.crt ca01:/tmp/rogue.crt
 sudo docker cp /tmp/rogue.key ca01:/tmp/rogue.key
 ```
@@ -1374,7 +1380,7 @@ Install the new leaf on `db01` and migrate the anchor, using Chapter 06 §8's ov
 both roots, move the server, drop the old one.
 
 ```bash
-sudo docker exec -u ca ca01 request-cert /tmp/db01.csr db01.lab.simurgh.example db01 \
+sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/db01.csr db01.lab.simurgh.example db01 \
   > /tmp/db01-new.crt
 sudo docker cp hsm01:/var/lib/ca/ca.crt /tmp/ca-new.crt
 sudo docker exec dev01 cp /opt/paymentsvc/ca.crt /tmp/ca-old.crt
