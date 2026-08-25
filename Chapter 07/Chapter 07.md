@@ -306,9 +306,17 @@ RUN useradd --system --home-dir /var/lib/ca --shell /usr/sbin/nologin signd \
 RUN mkdir -p /var/lib/ca/issued /etc/signd \
  && chown -R signd:signd /var/lib/ca /etc/signd \
  && chmod 0700 /var/lib/ca /var/lib/ca/issued \
- && touch /var/log/signd-audit.log \
- && chown signd:signd /var/log/signd-audit.log \
- && chmod 0600 /var/log/signd-audit.log
+ && touch /var/log/signd-audit.log /var/log/signd.out \
+ && chown signd:signd /var/log/signd-audit.log /var/log/signd.out \
+ && chmod 0600 /var/log/signd-audit.log \
+ && chmod 0644 /var/log/signd.out
+
+# signd.out has to exist and be owned by ACC-09 BEFORE anything starts.
+# /var/log is root-owned 0755, so `signd` cannot create a file in it, and
+# the shell performs `>>/var/log/signd.out` as that user. If the file is
+# missing the redirect fails, the process never starts, and docker exec -d
+# returns success while telling you nothing. Chapter 01 hit this for
+# paymentsvc.out and Chapter 02 section 4.4 hit it for secretstore.out.
 
 COPY hsm-init.sh   /usr/local/bin/hsm-init
 COPY sign-leaf.sh  /usr/local/bin/sign-leaf
@@ -327,6 +335,13 @@ RUN chmod 0755 /usr/local/bin/hsm-init /usr/local/bin/sign-leaf \
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 ```
+
+**`signd.out` is created in the Dockerfile and that line is load-bearing.** `/var/log` is
+root-owned and `0755`, so `ACC-09` cannot create a file there, and the shell performs
+`>>/var/log/signd.out` as that user. Without the file the redirect fails, the process never
+starts, and `docker exec -d` returns success while telling you nothing. Chapter 01's entrypoint
+does this for `paymentsvc.out` and Chapter 02 §4.4 does it for `secretstore.out`. It is the third
+time, and it still costs an evening if you meet it cold.
 
 The package list is the design. `python3` is there for `SVC-03` and there is no `curl`, no
 editor and no application runtime, because each of those is a way to move data off a machine
