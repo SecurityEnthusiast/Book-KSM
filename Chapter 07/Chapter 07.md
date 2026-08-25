@@ -1246,6 +1246,7 @@ sudo docker exec db01 sh -c '
     -out /tmp/db01.csr -subj "/CN=db01.lab.simurgh.example"'
 sudo docker cp db01:/tmp/db01.csr /tmp/db01.csr
 sudo docker cp /tmp/db01.csr ca01:/opt/ca-client/requests/db01.csr
+sudo docker exec ca01 chown ca:ca /opt/ca-client/requests/db01.csr
 sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/db01.csr db01.lab.simurgh.example db01
 ```
 
@@ -1284,7 +1285,19 @@ sudo docker cp hsm01:/var/lib/ca/issued/rogue.lab.simurgh.example.crt /tmp/rogue
 sudo docker cp hsm01:/var/lib/ca/requests/rogue.key /tmp/rogue.key
 sudo docker cp /tmp/rogue.crt ca01:/tmp/rogue.crt
 sudo docker cp /tmp/rogue.key ca01:/tmp/rogue.key
+sudo docker exec ca01 chown ca:ca /tmp/rogue.crt /tmp/rogue.key
 ```
+
+That last line is not tidying. `openssl` writes a private key `0600` whatever your umask says,
+which Chapter 06 §6.2 measured, and `docker cp` carries the mode across and lands the file owned
+by root. Without the `chown`, `curl` running as `ca` cannot read its own key and fails with:
+
+```
+curl: (58) unable to set private key file: '/tmp/rogue.key' type PEM
+```
+
+which names the file, says nothing about permissions, and looks exactly like a malformed
+certificate. A key that is unreadable and a key that is unparseable produce the same message.
 
 Now ask, as that identity, for the database's name:
 
