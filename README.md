@@ -38,6 +38,7 @@ Each chapter is a folder holding the chapter and everything needed to run its la
 | **05** | [The certificate nobody can replace](Chapter%2005/Chapter%2005.md) | The trust anchor is a file somebody copied by hand, and re-issuing the server's certificate breaks every client that pinned it. | A third machine holding one key; a certificate authority whose root the client pins instead of the server; a leaf rejected for its Subject Alternative Name while its Common Name reads perfectly; and a re-issued server certificate that costs the client nothing. |
 | **06** | [The key that cannot be copied](Chapter%2006/Chapter%2006.md) | The authority's key is a file, so two `cat` commands forge a certificate for any name in the estate. | A key generated inside a PKCS#11 token that reports `never extractable` and `local`; an `openssl` that signs with a key it is never given; a migration onto a new root with no outage; and an honest account of the one attacker a software token does not stop. |
 | **07** | [The key moves out](Chapter%2007/Chapter%2007.md) | The token refuses to export the key, and `tar` carries the whole token away and signs with it elsewhere. | A fourth machine that runs one service and carries no editor; a signing API that takes the caller's identity from the TLS certificate and checks it against a policy; a certificate this build's own authority issued, refused; and three roots in three chapters, which turns out to be the real finding. |
+| **08** | [The last root](Chapter%2008/Chapter%2008.md) | Three roots in three chapters. Each was forced by deciding where the key lives after creating it, and a root is the one object whose replacement touches everybody. | A fifth machine with no network that spends its life switched off; a root whose `pathlen` field Chapter 05 called free and which turns out to cost a root; an intermediate that does all the issuing and can be replaced without touching a single client; and the same defect failing twice with two error messages that share no words. |
 
 *More chapters are published as they are finished. Work them in order: both the system and
 the lab accumulate.*
@@ -83,8 +84,8 @@ without it and come back when something surprises you.
 
 ### The lab lives in the containers
 
-`dev01` is created in Chapter 01, `db01` in Chapter 04, `ca01` in Chapter 05 and `hsm01` in
-Chapter 07, each once. Only `ca01` is rebuilt, in Chapters 06 and 07, and only because
+`dev01` is created in Chapter 01, `db01` in Chapter 04, `ca01` in Chapter 05, `hsm01` in
+Chapter 07 and `rootca` in Chapter 08, each once. Only `ca01` is rebuilt, in Chapters 06 and 07, and only because
 everything on it is being replaced. Later chapters work from their own folders and deploy into
 those running containers with `docker cp`. When a chapter does add a machine it builds only
 that one, by name: `sudo docker compose up -d --build db01`.
