@@ -3,26 +3,16 @@
 #
 #   stop-signd
 #
-# WHY THIS EXISTS. Every other chapter stops a process with `pkill -f`, and
-# every one of those runs on dev01 or db01, which install `procps`. hsm01
-# does not. There is no ps here, no pgrep and no pkill, because D-054 says
-# this machine carries nothing a general purpose host carries and that was
-# not a slogan. The first command in Chapter 08 that assumed otherwise got:
-#
-#   OCI runtime exec failed: ... exec: "pkill": executable file not found
-#
-# followed, one line later, by the consequence:
-#
-#   OSError: [Errno 98] Address already in use
-#
-# because the old service was still holding 8443 when the new one started.
-# A stop that silently does nothing is worse than no stop at all.
+# WHY THIS EXISTS. hsm01 installs no procps, so there is no ps here, no
+# pgrep and no pkill. That is D-054: this machine carries nothing a general
+# purpose host carries. Every other chapter stops a process with `pkill -f`
+# and every one of those runs on dev01 or db01, which do install it.
 #
 # WHAT IT USES INSTEAD. /proc, which is the kernel and cannot be uninstalled,
 # read by the python3 that is here only because SVC-03 is written in it.
 #
-# Two things keep it from killing the wrong process, and it is worth being
-# exact about which does what, because one of them is weaker than it looks.
+# Two things keep it from killing the wrong process, and one is weaker than
+# it looks.
 #
 #   The PID check skips this process. That is what stops the searcher from
 #   killing itself, and it is the load-bearing one.
@@ -32,9 +22,7 @@
 #   script's own shell, whose argv holds /usr/local/bin/stop-signd. It does
 #   NOT rule out a process that merely has the exact path as an argument:
 #   `grep /usr/local/bin/signd` would still match. There is no such process
-#   here because this reads /proc directly instead of shelling out to grep,
-#   which is the actual reason the pipeline-searching-for-itself problem
-#   does not arise.
+#   here because this reads /proc directly instead of shelling out to grep.
 
 set -eu
 

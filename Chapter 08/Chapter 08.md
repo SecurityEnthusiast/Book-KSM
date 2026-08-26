@@ -1441,141 +1441,6 @@ sudo docker exec hsm01 sh -c '
 
 Expected: no output.
 
-### 9.2.1 A machine with no `ps`
-
-`SVC-03` has to be restarted three times in this chapter, and the command every earlier chapter
-uses does not exist here:
-
-```
-OCI runtime exec failed: ... exec: "pkill": executable file not found in $PATH
-```
-
-`pkill` comes from `procps`. `dev01` and `db01` install it; `ca01` and `hsm01` do not, because
-`D-054` says this machine carries nothing a general purpose host carries and that was not a
-slogan. Every `pkill` in Chapters 01 to 07 runs against `dev01`, so this is the first time the
-absence has mattered.
-
-**The failure is worse than a missing command**, because the next line starts the new service:
-
-```
-OSError: [Errno 98] Address already in use
-```
-
-The stop did nothing, the old process kept 8443, and the new one died. A stop that silently does
-nothing is worse than no stop at all, and this one is not silent only because something else
-happened to fail loudly afterwards.
-
-So `hsm01` gets a stop tool built from what it has: `/proc`, which is the kernel and cannot be
-uninstalled, read by the `python3` that is here only because `SVC-03` is written in it.
-
-```sh
-#!/bin/sh
-# Stop SVC-03, on a machine that has no process tools.
-#
-#   stop-signd
-#
-# WHY THIS EXISTS. Every other chapter stops a process with `pkill -f`, and
-# every one of those runs on dev01 or db01, which install `procps`. hsm01
-# does not. There is no ps here, no pgrep and no pkill, because D-054 says
-# this machine carries nothing a general purpose host carries and that was
-# not a slogan. The first command in Chapter 08 that assumed otherwise got:
-#
-#   OCI runtime exec failed: ... exec: "pkill": executable file not found
-#
-# followed, one line later, by the consequence:
-#
-#   OSError: [Errno 98] Address already in use
-#
-# because the old service was still holding 8443 when the new one started.
-# A stop that silently does nothing is worse than no stop at all.
-#
-# WHAT IT USES INSTEAD. /proc, which is the kernel and cannot be uninstalled,
-# read by the python3 that is here only because SVC-03 is written in it.
-#
-# Two things keep it from killing the wrong process, and it is worth being
-# exact about which does what, because one of them is weaker than it looks.
-#
-#   The PID check skips this process. That is what stops the searcher from
-#   killing itself, and it is the load-bearing one.
-#
-#   The match is on a whole argv entry rather than a substring. That rules
-#   out lookalikes such as /usr/local/bin/signd-old, and it rules out this
-#   script's own shell, whose argv holds /usr/local/bin/stop-signd. It does
-#   NOT rule out a process that merely has the exact path as an argument:
-#   `grep /usr/local/bin/signd` would still match. There is no such process
-#   here because this reads /proc directly instead of shelling out to grep,
-#   which is the actual reason the pipeline-searching-for-itself problem
-#   does not arise.
-
-set -eu
-
-exec python3 - <<'PY'
-import os
-import signal
-import sys
-import time
-
-TARGET = "/usr/local/bin/signd"
-
-
-def pids_running():
-    """Every PID whose argv contains TARGET as a whole argument, except ours."""
-    me = os.getpid()
-    out = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        pid = int(entry)
-        if pid == me:
-            continue
-        try:
-            with open("/proc/%d/cmdline" % pid, "rb") as fh:
-                argv = fh.read().decode("utf-8", "replace").split("\0")
-        except OSError:
-            # The process exited between listdir and open. Normal, not an error.
-            continue
-        if TARGET in argv:
-            out.append(pid)
-    return out
-
-
-targets = pids_running()
-if not targets:
-    print("stop-signd: nothing running")
-    sys.exit(0)
-
-for pid in targets:
-    print("stop-signd: sending TERM to %d" % pid)
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError as exc:
-        print("stop-signd: cannot signal %d: %s" % (pid, exc))
-
-# Wait for it to actually go, rather than assuming. The next thing the
-# chapter does is bind 8443 again, and a `sleep 1` that happens to be long
-# enough on this laptop is not a check.
-for _ in range(50):
-    if not pids_running():
-        print("stop-signd: stopped, 8443 released")
-        sys.exit(0)
-    time.sleep(0.1)
-
-print("stop-signd: still running after 5s, sending KILL")
-for pid in pids_running():
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except OSError:
-        pass
-time.sleep(0.5)
-sys.exit(0 if not pids_running() else 1)
-PY
-```
-
-**It waits for the process to go rather than assuming it has.** The next thing the chapter does
-is bind 8443 again, and a `sleep 1` that happens to be long enough on one laptop is not a check.
-That is the same argument as Chapter 06's `pkcs11-tool` refusal exiting 0: if the verification
-cannot distinguish success from failure, it is decoration.
-
 `sign-leaf` changes three variables, the token label, the key label and the certificate it signs
 against, and gains four lines at the end. The three variables are why this host no longer touches
 a root. The four lines are the one operational cost of the hierarchy:
@@ -1929,6 +1794,112 @@ if __name__ == "__main__":
 process is identical to Chapter 07: the same mTLS gate, the same `POL-02` lookup, the same audit
 line, and the same refusal to hold a key. What changed is not the code, it is what a compromise
 of this host costs, and that is the difference the hierarchy bought.
+
+### 9.2.1 A machine with no `ps`
+
+`SVC-03` is restarted three times in this chapter, and `pkill` does not exist on `hsm01`. It
+comes from `procps`, which `dev01` and `db01` install and `ca01` and `hsm01` do not, because
+`D-054` says this machine carries nothing a general purpose host carries. Every `pkill` in
+Chapters 01 to 07 runs against `dev01`, so this is the first place the absence matters.
+
+So `hsm01` gets a stop tool built from what it has: `/proc`, which is the kernel and cannot be
+uninstalled, read by the `python3` that is here only because `SVC-03` is written in it.
+
+```sh
+#!/bin/sh
+# Stop SVC-03, on a machine that has no process tools.
+#
+#   stop-signd
+#
+# WHY THIS EXISTS. hsm01 installs no procps, so there is no ps here, no
+# pgrep and no pkill. That is D-054: this machine carries nothing a general
+# purpose host carries. Every other chapter stops a process with `pkill -f`
+# and every one of those runs on dev01 or db01, which do install it.
+#
+# WHAT IT USES INSTEAD. /proc, which is the kernel and cannot be uninstalled,
+# read by the python3 that is here only because SVC-03 is written in it.
+#
+# Two things keep it from killing the wrong process, and one is weaker than
+# it looks.
+#
+#   The PID check skips this process. That is what stops the searcher from
+#   killing itself, and it is the load-bearing one.
+#
+#   The match is on a whole argv entry rather than a substring. That rules
+#   out lookalikes such as /usr/local/bin/signd-old, and it rules out this
+#   script's own shell, whose argv holds /usr/local/bin/stop-signd. It does
+#   NOT rule out a process that merely has the exact path as an argument:
+#   `grep /usr/local/bin/signd` would still match. There is no such process
+#   here because this reads /proc directly instead of shelling out to grep.
+
+set -eu
+
+exec python3 - <<'PY'
+import os
+import signal
+import sys
+import time
+
+TARGET = "/usr/local/bin/signd"
+
+
+def pids_running():
+    """Every PID whose argv contains TARGET as a whole argument, except ours."""
+    me = os.getpid()
+    out = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == me:
+            continue
+        try:
+            with open("/proc/%d/cmdline" % pid, "rb") as fh:
+                argv = fh.read().decode("utf-8", "replace").split("\0")
+        except OSError:
+            # The process exited between listdir and open. Normal, not an error.
+            continue
+        if TARGET in argv:
+            out.append(pid)
+    return out
+
+
+targets = pids_running()
+if not targets:
+    print("stop-signd: nothing running")
+    sys.exit(0)
+
+for pid in targets:
+    print("stop-signd: sending TERM to %d" % pid)
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        print("stop-signd: cannot signal %d: %s" % (pid, exc))
+
+# Wait for it to actually go, rather than assuming. The next thing the
+# chapter does is bind 8443 again, and a `sleep 1` that happens to be long
+# enough on this laptop is not a check.
+for _ in range(50):
+    if not pids_running():
+        print("stop-signd: stopped, 8443 released")
+        sys.exit(0)
+    time.sleep(0.1)
+
+print("stop-signd: still running after 5s, sending KILL")
+for pid in pids_running():
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+time.sleep(0.5)
+sys.exit(0 if not pids_running() else 1)
+PY
+```
+
+**It waits for the process to exit rather than assuming it has.** The next thing the chapter does
+is bind 8443 again, and a `sleep 1` that happens to be long enough on one laptop is not a check.
+That is the same argument as Chapter 06's `pkcs11-tool` refusal exiting 0: a verification that
+cannot distinguish success from failure is decoration.
 
 ### 9.3 `ca01` stops printing a certificate and starts writing two
 
