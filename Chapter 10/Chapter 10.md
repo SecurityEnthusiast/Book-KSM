@@ -1400,6 +1400,22 @@ Expected: the payment record.
 
 ## 6. What a client actually has to check
 
+`§5` left the publication point damaged twice and put it back twice. Before relying on that, ask
+rather than assume:
+
+```bash
+sudo docker exec -u pub pub01 pull-artifacts --from http://hsm01.lab.simurgh.example:8080 --once
+sudo docker exec ca01 curl -sS http://pub01.lab.simurgh.example/healthz
+```
+
+Expected: two lines reporting `unchanged` or `published`, then two lines naming the files and
+their sizes, with `crl.pem` several hundred bytes rather than two hundred.
+
+**Running that is not superstition.** A section that breaks something and repairs it at the end
+leaves the repair as the easiest line in the chapter to skip, and the next section then fails
+with an error about its own subject rather than about the thing that is actually wrong.
+`pull-artifacts --once` is idempotent, so this costs a second and removes the dependency.
+
 Four things, and only the first is obvious.
 
 **The signature**, against the authority that issued it. Otherwise anybody who can answer on that
