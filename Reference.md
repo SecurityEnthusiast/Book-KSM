@@ -14,39 +14,43 @@ awaiting a fix. Chapter 00 §4 sets the rules, and the object prefixes (`HOST-`,
 
 ---
 
-## Open threads (22)
+## Open threads (26)
 
 In the order that decides what gets built next. The top entry is the next chapter's
 pressure.
 
 | # | ID | What is wrong | Raised |
 |---|---|---|---|
-| 1 | `OT-022` | Nothing can be revoked | Chapter 05 §12 |
-| 2 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
-| 3 | `OT-027` | One person can sign anything | Chapter 06 §12 |
-| 4 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
-| 5 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
-| 6 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
-| 7 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
-| 8 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
-| 9 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
-| 10 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
-| 11 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
-| 12 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
-| 13 | `OT-004` | Root reads everything | Chapter 01 §8 |
-| 14 | `OT-006` | `SEC-01` is immortal in process memory | Chapter 01 §6 |
-| 15 | `OT-007` | Nothing expires | Chapter 01 §11 |
-| 16 | `OT-015` | The store audits itself | Chapter 03 §11 |
-| 17 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
-| 18 | `OT-019` | The database still authenticates the application with a password | Chapter 04 §12 |
-| 19 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
-| 20 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
-| 21 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
-| 22 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
+| 1 | `OT-032` | Nothing distributes `CRL-01`, and it expires | Chapter 09 §7 |
+| 2 | `OT-033` | Revocation is an availability dependency, and nothing keeps it fed | Chapter 09 §5.4 |
+| 3 | `OT-036` | Nothing verifies that a security control is actually running | Chapter 09 §8 |
+| 4 | `OT-037` | The verifiers do not agree with each other | Chapter 09 §9 |
+| 5 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
+| 6 | `OT-027` | One person can sign anything | Chapter 06 §12 |
+| 7 | `OT-035` | The intermediate cannot be revoked in useful time | Chapter 09 §5.4 |
+| 8 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
+| 9 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
+| 10 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
+| 11 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
+| 12 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
+| 13 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
+| 14 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
+| 15 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
+| 16 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
+| 17 | `OT-004` | Root reads everything | Chapter 01 §8 |
+| 18 | `OT-006` | `SEC-01` is immortal in process memory | Chapter 01 §6 |
+| 19 | `OT-007` | Nothing expires | Chapter 01 §11 |
+| 20 | `OT-015` | The store audits itself | Chapter 03 §11 |
+| 21 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
+| 22 | `OT-019` | The database still authenticates the application with a password | Chapter 04 §12 |
+| 23 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
+| 24 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
+| 25 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
+| 26 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
 
 ---
 
-## Closed threads (9)
+## Closed threads (10)
 
 Kept because the lineage is the point: you can trace any part of the final system back
 to the problem that forced it.
@@ -61,11 +65,12 @@ to the problem that forced it.
 | `OT-013` | The credential crosses the wire in plain HTTP | Chapter 02 §10 | Chapter 03, on one host |
 | `OT-017` | The trust anchor is hand-copied, and pinning does not survive renewal | Chapter 04 §10 | Chapter 05 |
 | `OT-021` | `KEY-02` forges any identity in the estate, and a file mode is what stops it | Chapter 05 §12 | Chapter 06 |
+| `OT-022` | Nothing can be revoked | Chapter 05 §12 | Chapter 09 |
 | `OT-028` | Three roots in three chapters, because custody keeps being decided late | Chapter 07 §9 | Chapter 08 |
 
 ---
 
-## Decisions (53)
+## Decisions (60)
 
 Every one records the alternatives and what would reverse it. Where a later chapter
 overturned an earlier decision, both are kept. Decisions about how the book itself is
@@ -126,3 +131,10 @@ written are not listed here.
 | `D-063` | Each machine's tools can only do that machine's job | Chapter 08 |
 | `D-064` | The chain travels with the certificate, from `sign-leaf` outward | Chapter 08 |
 | `D-065` | A five-year intermediate | Chapter 08 |
+| `D-066` | A CRL, not OCSP | Chapter 09 |
+| `D-067` | The PIN stays on the command line; the CA configuration holds no secret | Chapter 09 |
+| `D-068` | `CRL-` becomes an identifier prefix | Chapter 09 |
+| `D-069` | The register is for revocation; issuance is unchanged | Chapter 09 |
+| `D-070` | Seven days for the intermediate's list | Chapter 09 |
+| `D-071` | The application refuses to start on an unusable CRL | Chapter 09 |
+| `D-072` | Ten years for the root's list | Chapter 09 |

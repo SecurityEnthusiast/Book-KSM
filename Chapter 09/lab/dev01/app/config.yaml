@@ -1,0 +1,35 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: db01.lab.simurgh.example
+  port: 5432
+  name: paymentsdb
+  sslmode: verify-full
+  # Chapter 05: the anchor is the authority, not the server.
+  #
+  # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01
+  # presents. Pinning that meant re-issuing db01's certificate broke this
+  # client, which is OT-017. Now it is CERT-02, the root, and db01 can be
+  # re-issued as often as it likes without this line or this file changing.
+  #
+  # The path is the only thing that had to change on the client. That is
+  # the whole payoff, and it is a one-time cost.
+  sslrootcert: /opt/paymentsvc/ca.crt
+  # Chapter 09: check whether the certificate has been taken back.
+  #
+  # The anchor above answers "did our authority sign this". It cannot answer
+  # "does our authority still stand behind it", and those became different
+  # questions the moment a credential was stolen. This line is the second
+  # question.
+  #
+  # It is not a free improvement. With this set, libpq refuses any
+  # certificate whose revocation status it cannot establish: no file, an
+  # unreadable file, or a list past its nextUpdate all stop this application
+  # from starting, healthy certificates included. Deleting the line turns
+  # revocation checking off and everything works again, which is exactly why
+  # it is worth knowing that the line is load-bearing.
+  sslcrl: /opt/paymentsvc/crl.pem
+secret_store:
+  socket: /run/secretstore/sock
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080
