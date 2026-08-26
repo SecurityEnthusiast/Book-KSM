@@ -27,7 +27,17 @@ database:
   # from starting, healthy certificates included. Deleting the line turns
   # revocation checking off and everything works again, which is exactly why
   # it is worth knowing that the line is load-bearing.
-  sslcrl: /opt/paymentsvc/crl.pem
+  #
+  # Chapter 10: moved out of this directory, and the reason is least privilege
+  # rather than tidiness. The list is now maintained by fetch-crl, running as
+  # `paymentsvc`, and an atomic replace needs a temporary file in the same
+  # directory as the target. Granting that here would make /opt/paymentsvc
+  # writable by the application, which would let APP-01 rewrite its own
+  # configuration, and that has been forbidden since Chapter 01.
+  #
+  # A revocation list is not configuration. It is state an agent maintains, so
+  # it lives where the agent can own it.
+  sslcrl: /var/lib/fetch-crl/crl.pem
 secret_store:
   socket: /run/secretstore/sock
   secret_name: paymentsvc-db

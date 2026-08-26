@@ -53,7 +53,7 @@ lab/
 │   ├── initdb.sql                    Chapter 01
 │   ├── fetch-crl.py                ★ new: what a client must check before it installs
 │   ├── app/
-│   │   ├── config.yaml               Chapter 09
+│   │   ├── config.yaml             ★ changed: the CRL moves to agent-owned state
 │   │   └── paymentsvc.py             Chapter 09
 │   └── secretstore/
 │       ├── secretstore.py            Chapter 03
@@ -1438,7 +1438,7 @@ Run on any client that verifies certificates. On HOST-01 that is:
 
     fetch-crl --url http://pub01.lab.simurgh.example/crl.pem \\
               --anchors /opt/paymentsvc/ca-bundle.pem \\
-              --install /opt/paymentsvc/crl.pem \\
+              --install /var/lib/fetch-crl/crl.pem \\
               --state   /var/lib/fetch-crl/state.json
 
 WHY THIS IS NOT `curl -o /opt/paymentsvc/crl.pem`.
@@ -1471,6 +1471,7 @@ deliberately a dumb static server that holds no key at all.
 import argparse
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -1572,9 +1573,29 @@ def main():
                          "one per CA in the chain and refuses everything otherwise")
     args = ap.parse_args()
 
-    for path in (args.anchors,):
-        if not os.path.exists(path):
-            die(f"{path} does not exist. Nothing can be checked against nothing.")
+    if not os.path.exists(args.anchors):
+        die(f"{args.anchors} does not exist. Nothing can be checked against nothing.")
+
+    # Checked up front, because the alternative is a traceback from tempfile
+    # after every other check has passed, and a tool whose whole subject is
+    # careful failure should not fail carelessly.
+    #
+    # The temporary file MUST live in the install directory. os.replace is
+    # atomic only within one filesystem, and staging in /tmp then moving would
+    # be a copy, which is exactly the non-atomic write this avoids. So the
+    # agent needs write permission on the directory, not merely on the file.
+    #
+    # That is why the CRL does not live beside the application's configuration.
+    # /opt/paymentsvc is root-owned so that APP-01 cannot rewrite its own
+    # config, which has been true since Chapter 01 and should stay true. A
+    # revocation list is not configuration: it is state this agent maintains,
+    # so it belongs somewhere the agent owns.
+    dest_dir = os.path.dirname(os.path.abspath(args.install)) or "."
+    if not os.access(dest_dir, os.W_OK | os.X_OK):
+        die(f"{dest_dir} is not writable by "
+            f"{pwd.getpwuid(os.getuid()).pw_name}. An atomic replace needs a "
+            f"temporary file in the same directory as {args.install}, so the "
+            "install path must be somewhere this account owns.")
 
     # Fetch into a temporary file. The live file is not touched until every
     # check has passed, so a failed download cannot disable revocation checking.
@@ -1636,7 +1657,6 @@ def main():
     # Everything passed. Install atomically: a client reading the file mid-write
     # gets a parse error, and to a verifier failing closed a parse error is an
     # outage.
-    dest_dir = os.path.dirname(os.path.abspath(args.install)) or "."
     with tempfile.NamedTemporaryFile("wb", dir=dest_dir, delete=False) as out:
         out.write(body)
         staged = out.name
@@ -1663,17 +1683,86 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-Deploy it:
+
+Deploy it, and give it somewhere to work:
 
 ```bash
 sudo docker cp dev01/fetch-crl.py dev01:/usr/local/bin/fetch-crl
 sudo docker exec dev01 sh -c '
   chmod 0755 /usr/local/bin/fetch-crl
   mkdir -p /var/lib/fetch-crl
-  chown paymentsvc:paymentsvc /var/lib/fetch-crl'
+  chown paymentsvc:paymentsvc /var/lib/fetch-crl
+  chmod 0755 /var/lib/fetch-crl
+  ls -ld /opt/paymentsvc /var/lib/fetch-crl'
 ```
 
-Expected: no output.
+Expected: `/opt/paymentsvc` owned by `root`, and `/var/lib/fetch-crl` owned by `paymentsvc`.
+
+**That difference is why the CRL is about to move.** An atomic replace needs a temporary file in
+the same directory as the target, so an unprivileged agent needs write permission on the
+**directory**, not merely on the file. `/opt/paymentsvc` is root-owned so that `APP-01` cannot
+rewrite its own configuration, which has been true since Chapter 01 and should stay true.
+
+A revocation list is not configuration. It is state this agent maintains, so it belongs where the
+agent can own it, and `config.yaml` says so:
+
+```yaml
+# /opt/paymentsvc/config.yaml
+database:
+  host: db01.lab.simurgh.example
+  port: 5432
+  name: paymentsdb
+  sslmode: verify-full
+  # Chapter 05: the anchor is the authority, not the server.
+  #
+  # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01
+  # presents. Pinning that meant re-issuing db01's certificate broke this
+  # client, which is OT-017. Now it is CERT-02, the root, and db01 can be
+  # re-issued as often as it likes without this line or this file changing.
+  #
+  # The path is the only thing that had to change on the client. That is
+  # the whole payoff, and it is a one-time cost.
+  sslrootcert: /opt/paymentsvc/ca.crt
+  # Chapter 09: check whether the certificate has been taken back.
+  #
+  # The anchor above answers "did our authority sign this". It cannot answer
+  # "does our authority still stand behind it", and those became different
+  # questions the moment a credential was stolen. This line is the second
+  # question.
+  #
+  # It is not a free improvement. With this set, libpq refuses any
+  # certificate whose revocation status it cannot establish: no file, an
+  # unreadable file, or a list past its nextUpdate all stop this application
+  # from starting, healthy certificates included. Deleting the line turns
+  # revocation checking off and everything works again, which is exactly why
+  # it is worth knowing that the line is load-bearing.
+  #
+  # Chapter 10: moved out of this directory, and the reason is least privilege
+  # rather than tidiness. The list is now maintained by fetch-crl, running as
+  # `paymentsvc`, and an atomic replace needs a temporary file in the same
+  # directory as the target. Granting that here would make /opt/paymentsvc
+  # writable by the application, which would let APP-01 rewrite its own
+  # configuration, and that has been forbidden since Chapter 01.
+  #
+  # A revocation list is not configuration. It is state an agent maintains, so
+  # it lives where the agent can own it.
+  sslcrl: /var/lib/fetch-crl/crl.pem
+secret_store:
+  socket: /run/secretstore/sock
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080
+```
+
+```bash
+sudo docker cp dev01/app/config.yaml dev01:/opt/paymentsvc/config.yaml
+sudo docker exec dev01 sh -c '
+  chown paymentsvc:paymentsvc /opt/paymentsvc/config.yaml
+  chmod 0400 /opt/paymentsvc/config.yaml
+  grep sslcrl: /opt/paymentsvc/config.yaml'
+```
+
+Expected: `sslcrl: /var/lib/fetch-crl/crl.pem`.
 
 The client also needs the anchors to check both lists against. It has `CERT-08` already; what it
 lacks is `CERT-09`, and that is fetchable and verifiable:
@@ -1707,14 +1796,14 @@ sudo docker exec dev01 sh -c '
 sudo docker exec -u paymentsvc dev01 fetch-crl \
     --url http://pub01.lab.simurgh.example/crl.pem \
     --anchors /opt/paymentsvc/ca-bundle.pem \
-    --install /opt/paymentsvc/crl.pem \
+    --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json
 ```
 
 Expected:
 
 ```
-installed: /opt/paymentsvc/crl.pem
+installed: /var/lib/fetch-crl/crl.pem
   CN=Simurgh Lab Issuing CA 1
     crlNumber 4098, nextUpdate ...
   CN=Simurgh Lab Root CA
@@ -1732,10 +1821,10 @@ sudo docker exec -u pub pub01 sh -c '
 sudo docker exec -u paymentsvc dev01 fetch-crl \
     --url http://pub01.lab.simurgh.example/crl.pem \
     --anchors /opt/paymentsvc/ca-bundle.pem \
-    --install /opt/paymentsvc/crl.pem \
+    --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json
 echo "exit: $?"
-sudo docker exec dev01 openssl crl -in /opt/paymentsvc/crl.pem -noout -crlnumber
+sudo docker exec dev01 openssl crl -in /var/lib/fetch-crl/crl.pem -noout -crlnumber
 ```
 
 Expected:
@@ -1789,7 +1878,7 @@ sudo docker exec -u pub pub01 \
 sudo docker exec -u paymentsvc dev01 fetch-crl \
     --url http://pub01.lab.simurgh.example/crl.pem \
     --anchors /opt/paymentsvc/ca-bundle.pem \
-    --install /opt/paymentsvc/crl.pem \
+    --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json | head -3
 echo "=== now the attacker replaces what pub01 serves with the OLD list ==="
 sudo docker cp hsm01:/var/lib/ca/crl-old.pem /tmp/crl-old.pem
@@ -1822,10 +1911,10 @@ Now the client:
 sudo docker exec -u paymentsvc dev01 fetch-crl \
     --url http://pub01.lab.simurgh.example/crl.pem \
     --anchors /opt/paymentsvc/ca-bundle.pem \
-    --install /opt/paymentsvc/crl.pem \
+    --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json
 echo "exit: $?"
-sudo docker exec dev01 openssl crl -in /opt/paymentsvc/crl.pem -noout -crlnumber
+sudo docker exec dev01 openssl crl -in /var/lib/fetch-crl/crl.pem -noout -crlnumber
 ```
 
 Expected:
@@ -1863,7 +1952,7 @@ sudo docker exec -u pub pub01 \
 sudo docker exec -u paymentsvc dev01 fetch-crl \
     --url http://pub01.lab.simurgh.example/crl.pem \
     --anchors /opt/paymentsvc/ca-bundle.pem \
-    --install /opt/paymentsvc/crl.pem \
+    --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json | head -1
 ```
 

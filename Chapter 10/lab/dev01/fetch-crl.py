@@ -5,7 +5,7 @@ Run on any client that verifies certificates. On HOST-01 that is:
 
     fetch-crl --url http://pub01.lab.simurgh.example/crl.pem \\
               --anchors /opt/paymentsvc/ca-bundle.pem \\
-              --install /opt/paymentsvc/crl.pem \\
+              --install /var/lib/fetch-crl/crl.pem \\
               --state   /var/lib/fetch-crl/state.json
 
 WHY THIS IS NOT `curl -o /opt/paymentsvc/crl.pem`.
@@ -38,6 +38,7 @@ deliberately a dumb static server that holds no key at all.
 import argparse
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -139,9 +140,29 @@ def main():
                          "one per CA in the chain and refuses everything otherwise")
     args = ap.parse_args()
 
-    for path in (args.anchors,):
-        if not os.path.exists(path):
-            die(f"{path} does not exist. Nothing can be checked against nothing.")
+    if not os.path.exists(args.anchors):
+        die(f"{args.anchors} does not exist. Nothing can be checked against nothing.")
+
+    # Checked up front, because the alternative is a traceback from tempfile
+    # after every other check has passed, and a tool whose whole subject is
+    # careful failure should not fail carelessly.
+    #
+    # The temporary file MUST live in the install directory. os.replace is
+    # atomic only within one filesystem, and staging in /tmp then moving would
+    # be a copy, which is exactly the non-atomic write this avoids. So the
+    # agent needs write permission on the directory, not merely on the file.
+    #
+    # That is why the CRL does not live beside the application's configuration.
+    # /opt/paymentsvc is root-owned so that APP-01 cannot rewrite its own
+    # config, which has been true since Chapter 01 and should stay true. A
+    # revocation list is not configuration: it is state this agent maintains,
+    # so it belongs somewhere the agent owns.
+    dest_dir = os.path.dirname(os.path.abspath(args.install)) or "."
+    if not os.access(dest_dir, os.W_OK | os.X_OK):
+        die(f"{dest_dir} is not writable by "
+            f"{pwd.getpwuid(os.getuid()).pw_name}. An atomic replace needs a "
+            f"temporary file in the same directory as {args.install}, so the "
+            "install path must be somewhere this account owns.")
 
     # Fetch into a temporary file. The live file is not touched until every
     # check has passed, so a failed download cannot disable revocation checking.
@@ -203,7 +224,6 @@ def main():
     # Everything passed. Install atomically: a client reading the file mid-write
     # gets a parse error, and to a verifier failing closed a parse error is an
     # outage.
-    dest_dir = os.path.dirname(os.path.abspath(args.install)) or "."
     with tempfile.NamedTemporaryFile("wb", dir=dest_dir, delete=False) as out:
         out.write(body)
         staged = out.name
