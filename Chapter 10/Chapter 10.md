@@ -1268,20 +1268,34 @@ sudo docker exec dev01 sh -c '
 Expected: `crlNumber=0x1002`. It worked. The client is now current, `§1`'s gap is closed, and
 this chapter could be four sections long.
 
-Now run it when the publication point is having a bad day:
+Now run it while the publication point is having a bad day. Not down, which would be obvious.
+Answering:
 
 ```bash
-sudo docker exec -d -u pub pub01 sh -c 'pkill -f pubd || true'
+sudo docker exec -u pub pub01 sh -c 'mv /srv/pub/crl.pem /srv/pub/crl.pem.keep'
 sudo docker exec dev01 sh -c '
   curl -sS -o /opt/paymentsvc/crl.pem http://pub01.lab.simurgh.example/crl.pem
   echo "curl exit: $?"
-  ls -l /opt/paymentsvc/crl.pem'
+  ls -l /opt/paymentsvc/crl.pem
+  cat /opt/paymentsvc/crl.pem'
 ```
 
-Expected: a `curl` connection error, a non-zero exit, and a `crl.pem` of **zero bytes**.
+Expected:
 
-**`curl -o` truncates the destination before it knows whether the fetch will succeed.** The live
-file is destroyed by an attempt that failed. Now ask the application what it thinks:
+```
+curl exit: 0
+-rw-r--r-- 1 paymentsvc paymentsvc 18 ... /opt/paymentsvc/crl.pem
+not published yet
+```
+
+**Read the exit code first.** `curl` reported success. It then wrote `pubd`'s `503` body into the
+file, on top of a working revocation list, and said nothing about it.
+
+That is not a bug in `curl`. Without `--fail` it treats an HTTP error as a response like any
+other: there were bytes, it was asked to put bytes in a file, and it did. The estate's revocation
+list is now the string `not published yet`.
+
+Ask the application what it makes of that:
 
 ```bash
 sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
@@ -1294,25 +1308,69 @@ sudo docker exec dev01 tail -2 /var/log/paymentsvc.out
 Expected:
 
 ```
-sslcrl is set to /opt/paymentsvc/crl.pem, which is empty. Refusing to start: a failed
-download looks exactly like this.
+sslcrl is set to /opt/paymentsvc/crl.pem, which openssl cannot parse. Refusing to start.
 ```
 
-**That message was written in Chapter 09 §8 for a failure mode nobody had automated yet.** The
-comment in `paymentsvc.py` says *a failed download looks exactly like this*, and this is the
-failed download. Without `check_crl_usable`, libpq would have turned revocation checking off and
-the application would be running right now, reporting healthy, checking nothing.
+**That check was written in Chapter 09 §8 for a failure nobody had automated yet.** Without it,
+libpq would have loaded nothing, turned revocation checking off, and the application would be
+running now, reporting healthy, checking nothing.
 
-**Automating a bad procedure does not make it slightly worse.** It changes it from a mistake
-somebody makes once, in front of a terminal, into a mistake that recurs on a timer with nobody
-watching. The one-liner is more dangerous than the manual copy it replaced.
+### 5.1 `--fail` fixes one case and not the one that matters
 
-Put things back:
+The obvious repair is to tell `curl` that an HTTP error is an error:
 
 ```bash
+sudo docker exec dev01 sh -c '
+  cp /opt/paymentsvc/crl.pem.keep /opt/paymentsvc/crl.pem
+  curl -sS --fail -o /opt/paymentsvc/crl.pem http://pub01.lab.simurgh.example/crl.pem
+  echo "curl exit: $?"
+  openssl crl -in /opt/paymentsvc/crl.pem -noout -crlnumber'
+```
+
+Expected: `curl exit: 22`, and the previous `crlNumber` intact. Better. The live file survived
+because `curl` refused to write a response it had been told to reject.
+
+Now consider what `--fail` cannot see. Restore the publication point, then damage what it serves
+rather than how it answers:
+
+```bash
+sudo docker exec -u pub pub01 sh -c '
+  mv /srv/pub/crl.pem.keep /srv/pub/crl.pem
+  cp /srv/pub/crl.pem /srv/pub/crl.pem.keep
+  head -c 200 /srv/pub/crl.pem.keep > /srv/pub/crl.pem'
+sudo docker exec dev01 sh -c '
+  curl -sS --fail -o /opt/paymentsvc/crl.pem http://pub01.lab.simurgh.example/crl.pem
+  echo "curl exit: $?"
+  ls -l /opt/paymentsvc/crl.pem
+  grep -c "BEGIN X509 CRL" /opt/paymentsvc/crl.pem'
+```
+
+Expected: `curl exit: 0`, a file of about 200 bytes, and `1`.
+
+**A `200 OK` carrying half a file is a successful download.** `--fail` inspects the status line
+and nothing else, so a truncated, corrupted or simply wrong body is delivered and installed. The
+estate now holds one list where it needs two, which Chapter 09 measured as libpq refusing
+**every** certificate, healthy ones included.
+
+Three failure modes, and the tool catches one:
+
+| What happens | `curl -o` | `curl --fail -o` | What the client needs |
+|---|---|---|---|
+| Connection refused, DNS failure | exits non-zero, file intact | same | nothing more |
+| Server answers `503` | **exit 0, file destroyed** | exits 22, file intact | `--fail` |
+| Server answers `200` with a bad body | **exit 0, file destroyed** | **exit 0, file destroyed** | check the content |
+
+**Automating a bad procedure does not make it slightly worse.** A human copying a file is present
+when it goes wrong. A timer does the same thing at three in the morning with nobody watching, and
+does it again an hour later. Automation does not reduce mistakes, it removes the observer, so a
+procedure that fails quietly must be made loud **before** it is put on a schedule.
+
+Put everything back:
+
+```bash
+sudo docker exec -u pub pub01 sh -c 'mv /srv/pub/crl.pem.keep /srv/pub/crl.pem'
 sudo docker exec dev01 sh -c 'mv /opt/paymentsvc/crl.pem.keep /opt/paymentsvc/crl.pem'
-sudo docker exec -d -u pub pub01 sh -c 'python3 /usr/local/bin/pubd >>/var/log/pubd.out 2>&1'
-sleep 1
+sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
 sudo docker exec -d -u paymentsvc dev01 \
     sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
 sleep 2
