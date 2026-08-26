@@ -1240,17 +1240,34 @@ sudo docker exec ca01 sh -c '
 
 Expected: two lines naming the files and their sizes, then `traversal: 404` and `write: 405`.
 
-Leave it running on a loop, which is what it is for:
+**Leave it on `--once` for now.** `pull-artifacts` is meant to run on a loop, and the loop is
+started in `§15`, at the end, deliberately.
+
+`§5` to `§7` break the publication point on purpose, and a poller doing its job repairs the
+damage within a minute. That is correct behaviour and it makes three demonstrations impossible to
+observe: you sabotage `/srv/pub`, read the next paragraph, and by the time you run the command
+the estate has healed itself and the output is the one from before the sabotage.
+
+**If you have already started the loop**, stop it. `pub01` has no `procps`, so there is no
+`pkill` here, and the way to stop a process on a machine that holds nothing is to stop the
+machine:
 
 ```bash
-sudo docker exec -d -u pub pub01 sh -c \
-    'python3 /usr/local/bin/pull-artifacts --from http://hsm01.lab.simurgh.example:8080 \
-     --interval 60 >>/var/log/pull-artifacts.out 2>&1'
-sleep 2
-sudo docker exec -u pub pub01 tail -3 /var/log/pull-artifacts.out
+sudo docker restart pub01
+sudo docker exec -d -u pub pub01 sh -c 'python3 /usr/local/bin/pubd >>/var/log/pubd.out 2>&1'
+sleep 1
+sudo docker exec -u pub pub01 \
+    pull-artifacts --from http://hsm01.lab.simurgh.example:8080 --once
+sudo docker exec ca01 curl -sS http://pub01.lab.simurgh.example/healthz
 ```
 
-Expected: lines reporting `unchanged`, since it has just fetched the same files.
+Expected: two published lines, then two lines naming the files and their sizes. `pubd` is serving
+again and nothing is polling.
+
+**That `docker restart` is worth a moment rather than a skim.** On `hsm01` it would be
+unthinkable: restarting the container that holds the token is how you lose `KEY-06` and every
+certificate under it. Here it costs nothing, takes a second, and needs no ceremony. That
+difference is the entire argument for `HOST-06` existing.
 
 ---
 
@@ -2306,16 +2323,23 @@ mathematics allows, and every real PKI has the same irreducible step.
 
 ## 15. Leaving the lab standing
 
+Start the pull loop, which every section until now has deliberately been without:
+
 ```bash
+sudo docker exec -d -u pub pub01 sh -c \
+    'python3 /usr/local/bin/pull-artifacts --from http://hsm01.lab.simurgh.example:8080 \
+     --interval 60 >>/var/log/pull-artifacts.out 2>&1'
+sleep 2
 sudo docker ps -a --format '{{.Names}}\t{{.Status}}'
-sudo docker exec -u pub pub01 tail -2 /var/log/pull-artifacts.out
+sudo docker exec -u pub pub01 tail -3 /var/log/pull-artifacts.out
 sudo docker exec dev01 cat /var/lib/fetch-crl/state.json
 ```
 
-Expected: `dev01`, `db01`, `ca01`, `hsm01` and `pub01` `Up`, `rootca` `Exited`; recent lines from
-the pull loop; and a state file naming both authorities with the highest number seen for each.
+Expected: `dev01`, `db01`, `ca01`, `hsm01` and `pub01` `Up`, `rootca` `Exited`; lines reporting
+`unchanged`, since it has just fetched what it already has; and a state file naming both
+authorities with the highest number seen for each.
 
-`pull-artifacts` is running on a sixty-second loop inside `pub01`. Nothing runs `fetch-crl` on
+`pull-artifacts` now runs on a sixty-second loop inside `pub01`. Nothing runs `fetch-crl` on
 `dev01` and nothing runs `crl-refresh` on `hsm01`, so the estate's revocation state converges
 from the authority as far as the publication point and no further.
 
