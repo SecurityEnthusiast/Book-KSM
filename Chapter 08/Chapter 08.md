@@ -1041,7 +1041,12 @@ LABEL=ica-key
 DIR=/var/lib/ca
 PIN_FILE=$DIR/ica-pin           # SEC-08
 SO_PIN_FILE=$DIR/ica-so-pin     # SEC-09
-CN=Simurgh Lab Issuing CA 1
+CN="Simurgh Lab Issuing CA 1"   # quoted, and it has to be: without the quotes the
+                                # shell reads this as CN=Simurgh followed by the
+                                # command `Lab`, and `sh -n` accepts it happily
+                                # because an assignment prefix before a command is
+                                # valid syntax. It fails at run time with
+                                # `Lab: not found`.
 
 [ -r "$PIN_FILE" ]    || { echo "ica-init: cannot read $PIN_FILE. Run as the 'signd' user." >&2; exit 1; }
 [ -r "$SO_PIN_FILE" ] || { echo "ica-init: cannot read $SO_PIN_FILE." >&2; exit 1; }
@@ -1096,6 +1101,7 @@ date -u +"%Y-%m-%dT%H:%M:%SZ  KEY-06 generated in token $TOKEN, label $LABEL; CS
     >> "$DIR/ceremony.log"
 tail -3 "$DIR/ceremony.log"
 ```
+
 
 Run it:
 
