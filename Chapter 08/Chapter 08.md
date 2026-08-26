@@ -133,9 +133,14 @@ sudo docker exec -d -u signd hsm01 \
     sh -c 'python3 /usr/local/bin/signd >>/var/log/signd.out 2>&1'
 sleep 1
 curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/payments/1001/status
 ```
 
-Expected: `{"status": "ok"}`.
+Expected: `{"status": "ok"}`, then the payment record.
+
+Both, not just the first. `/healthz` answers from the process and never opens a connection, so it
+says `ok` on an application that cannot reach its database at all. The query is what proves the
+starting state, and this chapter spends `§10` on a failure that `/healthz` reports as healthy.
 
 ---
 
@@ -2201,30 +2206,37 @@ sudo docker exec db01 sh -c '
 Expected: no output. The cluster restarts cleanly, because nothing about serving a leaf-only
 certificate is wrong from the server's side.
 
-Ask the application:
+Ask the application. `/healthz` is no use here and it is worth knowing why: it answers from the
+process itself and never opens a connection, so it reports `ok` on an application that cannot
+reach its database at all. The endpoint that runs a query is the one that tells you anything:
 
 ```bash
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/payments/1001/status
 ```
 
-Expected:
+Expected: nothing, or a `curl` complaint about an empty reply. `APP-01` connects at startup, and
+the connection it is holding was established before the certificate changed, so what you are
+watching is the retry: `pg_ctlcluster restart` dropped the old connection, the query caught the
+failure and called `connect()` again, and this time verification refuses.
 
-```json
-{"status": "degraded", "database": "unreachable"}
-```
-
-And the reason, from the log:
+Stop guessing at it and watch it fail in the open, which is the technique Chapter 05 §6 used for
+the same class of problem:
 
 ```bash
-sudo docker exec dev01 tail -3 /var/log/paymentsvc.out
+sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
+sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 | tail -4
 ```
 
-Expected, on one long line:
+Expected, ending in:
 
 ```
-psycopg2.OperationalError: connection to server at "db01.lab.simurgh.example" ...
-SSL error: certificate verify failed
+psycopg2.OperationalError: connection to server at "db01.lab.simurgh.example" (172.x.x.x),
+port 5432 failed: SSL error: certificate verify failed
 ```
+
+The application refuses to start at all, which is the honest outcome: it has one job, it cannot
+do it, and `D-011` said it should fail loudly rather than continue without the protection it was
+configured to require.
 
 **This is the same defect you fixed in `§9.4`, eleven minutes ago, and it looks nothing like
 it.** There the error was `curl: (60) SSL certificate problem: unable to get local issuer
@@ -2275,15 +2287,13 @@ sudo docker exec db01 sh -c '
   chmod 0644 /etc/postgresql/15/main/server.crt
   grep -c "BEGIN CERTIFICATE" /etc/postgresql/15/main/server.crt
   pg_ctlcluster 15 main restart'
+sudo docker exec -d -u paymentsvc dev01 \
+    sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
 sleep 2
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/payments/1001/status
 ```
 
-Expected: `2`, then:
-
-```json
-{"status": "ok"}
-```
+Expected: `2`, then the payment record.
 
 `CERT-03` is re-issued under the intermediate, the application verifies it against a bundle that
 contains the new root, and nothing on `dev01` was edited to make that work. **That is the
@@ -2315,13 +2325,18 @@ sleep 1
 sudo docker exec -d -u paymentsvc dev01 \
     sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
 sleep 2
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/payments/1001/status
 sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/probe.csr \
     db01.lab.simurgh.example db01
 ```
 
-Expected: `{"status": "ok"}`, and an issued certificate. One root in every bundle, and everything
+Expected: the payment record, and an issued certificate. One root in every bundle, and everything
 still works.
+
+**Both halves matter and they test different things.** The payment record says a client that
+trusts only `CERT-08` accepts a server certificate signed by `CERT-09`, which is the chain
+working. The issued certificate says `SVC-03` still authenticates `ca01` after both of them
+stopped trusting the root that introduced them.
 
 `CERT-05` is retired. Now the key behind it:
 
