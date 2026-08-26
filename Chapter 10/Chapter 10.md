@@ -2189,9 +2189,14 @@ sequenceDiagram
     Note over C: keeps 4100. doomed stays revoked.
 ```
 
-**Read step 6 and the note under it.** The file passed every cryptographic check. The only thing
-that caught it was a number the client had written down earlier, which is why `state.json` is not
-an optimisation.
+**Read step 5 and the note under it.** The publication point hands back a list whose signature
+verifies and whose dates are current, and it is the wrong list. Every cryptographic check passes.
+The only thing that refuses it is a number the client wrote down at step 2, which is why
+`state.json` is not an optimisation.
+
+**Note also what is not numbered.** The three annotations carry the reasoning and Mermaid numbers
+messages rather than notes, so the diagram has five steps and four notes. The attack is one
+message, step 3, and everything that makes it survivable happens in the notes.
 
 **Figure 10.3 — after Chapter 10**
 

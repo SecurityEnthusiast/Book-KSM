@@ -1638,9 +1638,15 @@ sequenceDiagram
     Note over P: Chapter 08: verifies. EOF detected.<br/>Chapter 09: error 23, refused.
 ```
 
-**Read step 4 and the note under it.** Nothing was bypassed. Both gates answered the question
-they were built to answer, and the audit log is accurate. What the estate lacked was any way to
-change its mind afterwards.
+**Read steps 2 and 3 with the notes between them.** Nothing was bypassed. Gate 1 confirmed our
+authority had signed the caller, which was true. Gate 2 confirmed `POL-02` permitted that caller
+to request that name, which was also true. The certificate was issued, and the audit log recorded
+an allow, correctly.
+
+**Step 4 is the consequence and not the failure.** By the time the impostor answers, every
+decision that could have prevented it has already been made, correctly, by components working
+exactly as Chapter 07 built them. What the estate lacked was any way to change its mind
+afterwards.
 
 **Figure 9.3 — after Chapter 09**
 
