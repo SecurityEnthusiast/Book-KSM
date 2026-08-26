@@ -40,6 +40,7 @@ Each chapter is a folder holding the chapter and everything needed to run its la
 | **07** | [The key moves out](Chapter%2007/Chapter%2007.md) | The token refuses to export the key, and `tar` carries the whole token away and signs with it elsewhere. | A fourth machine that runs one service and carries no editor; a signing API that takes the caller's identity from the TLS certificate and checks it against a policy; a certificate this build's own authority issued, refused; and three roots in three chapters, which turns out to be the real finding. |
 | **08** | [The last root](Chapter%2008/Chapter%2008.md) | Three roots in three chapters. Each was forced by deciding where the key lives after creating it, and a root is the one object whose replacement touches everybody. | A fifth machine with no network that spends its life switched off; a root whose `pathlen` field Chapter 05 called free and which turns out to cost a root; an intermediate that does all the issuing and can be replaced without touching a single client; and the same defect failing twice with two error messages that share no words. |
 | **09** | [Taking it back](Chapter%2009/Chapter%2009.md) | A stolen operator credential buys a genuine certificate for the database's name, every gate answers correctly, and nothing in the estate can withdraw it. | An authority that finally keeps a register; a revocation list signed by a root that has to be woken up to sign it; an impostor refused with `error 23` where it was accepted before; and a security control that switches itself off in silence when a download fails. |
+| **10** | [Fetching, not copying](Chapter%2010/Chapter%2010.md) | The revocation list is carried between machines by a person, and it expires. A file somebody forgets is bad; a file that stops working on a deadline is worse. | A sixth machine that holds nothing and is trusted by nobody; a client that verifies content instead of channels; the one-line fetch that destroys a working file before discovering it failed; and an authentic list, correctly signed and unexpired, refused because a number went backwards. |
 
 *More chapters are published as they are finished. Work them in order: both the system and
 the lab accumulate.*
@@ -86,7 +87,7 @@ without it and come back when something surprises you.
 ### The lab lives in the containers
 
 `dev01` is created in Chapter 01, `db01` in Chapter 04, `ca01` in Chapter 05, `hsm01` in
-Chapter 07 and `rootca` in Chapter 08, each once. Only `ca01` is rebuilt, in Chapters 06 and 07, and only because
+Chapter 07, `rootca` in Chapter 08 and `pub01` in Chapter 10, each once. Only `ca01` is rebuilt, in Chapters 06 and 07, and only because
 everything on it is being replaced. Later chapters work from their own folders and deploy into
 those running containers with `docker cp`. When a chapter does add a machine it builds only
 that one, by name: `sudo docker compose up -d --build db01`.

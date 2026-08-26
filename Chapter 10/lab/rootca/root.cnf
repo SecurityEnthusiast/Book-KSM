@@ -1,0 +1,53 @@
+# The root's register, on the machine that is normally switched off.
+#
+# WHY THE ROOT NEEDS ONE AT ALL, which was a surprise. libpq does not check
+# revocation the way `openssl verify -crl_check` does. It sets
+# CRL_CHECK_ALL, which means it wants a revocation list from EVERY authority
+# in the chain, not just the one that signed the leaf. Measured: a client
+# given only the intermediate's CRL refuses a perfectly healthy certificate.
+#
+# So switching revocation on anywhere in this estate requires CERT-08 to
+# publish a list, and CERT-08 lives here, on a host with no network that
+# spends its life in state `Exited`. The offline root has to speak.
+#
+# That is the tension Chapter 09 could not design around: the machine whose
+# entire value is being unreachable is now on the critical path of every TLS
+# handshake in the estate. It speaks once, during a ceremony, and the list it
+# produces has to last until the next one.
+#
+# No private_key here, for the same reason ca.cnf on hsm01 has none: it would
+# put SEC-06 in a file. root-crl names the key on the command line. D-067.
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir               = /var/lib/rootca
+database          = $dir/db/index.txt
+crlnumber         = $dir/db/crlnumber
+certificate       = $dir/root.crt
+default_md        = sha256
+
+# TEN YEARS, matching CERT-08's own validity, and the reasoning is the
+# opposite of the intermediate's seven days.
+#
+# A CRL cannot usefully outlive the authority that signed it, so ten years is
+# the ceiling. It is also close to the floor, because the only way to
+# republish this list is a ceremony: start a machine that is deliberately
+# off, unlock a token, sign, stop it again. A one-year root CRL would put a
+# hard annual deadline on the whole estate, enforced by every client
+# refusing every certificate the morning it lapses.
+#
+# Real hierarchies do use months rather than years here, and they can,
+# because they have a scheduled ceremony and people whose job it is. This
+# lab has neither, and a teaching lab that bricks itself on an anniversary
+# teaches the wrong lesson. The trade is argued in D-072 and the gap it
+# leaves is OT-035: a root CRL this long means a compromised intermediate
+# stays trusted until somebody convenes a ceremony, which is exactly as slow
+# as it sounds.
+default_crl_days  = 3650
+
+crl_extensions    = crl_ext
+
+[ crl_ext ]
+authorityKeyIdentifier = keyid:always

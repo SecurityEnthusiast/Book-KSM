@@ -14,25 +14,25 @@ awaiting a fix. Chapter 00 §4 sets the rules, and the object prefixes (`HOST-`,
 
 ---
 
-## Open threads (26)
+## Open threads (27)
 
 In the order that decides what gets built next. The top entry is the next chapter's
 pressure.
 
 | # | ID | What is wrong | Raised |
 |---|---|---|---|
-| 1 | `OT-032` | Nothing distributes `CRL-01`, and it expires | Chapter 09 §7 |
-| 2 | `OT-033` | Revocation is an availability dependency, and nothing keeps it fed | Chapter 09 §5.4 |
-| 3 | `OT-036` | Nothing verifies that a security control is actually running | Chapter 09 §8 |
+| 1 | `OT-033` | Revocation is an availability dependency, and nothing keeps it fed | Chapter 09 §5.4 |
+| 2 | `OT-039` | Nothing watches the deadline | Chapter 10 §9 |
+| 3 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
 | 4 | `OT-037` | The verifiers do not agree with each other | Chapter 09 §9 |
-| 5 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
+| 5 | `OT-038` | The publication point is a single point of availability failure | Chapter 10 §9 |
 | 6 | `OT-027` | One person can sign anything | Chapter 06 §12 |
 | 7 | `OT-035` | The intermediate cannot be revoked in useful time | Chapter 09 §5.4 |
 | 8 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
-| 9 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
-| 10 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
-| 11 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
-| 12 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
+| 9 | `OT-036` | Nothing verifies that a security control is actually running | Chapter 09 §8 |
+| 10 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
+| 11 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
+| 12 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
 | 13 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
 | 14 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
 | 15 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
@@ -43,14 +43,15 @@ pressure.
 | 20 | `OT-015` | The store audits itself | Chapter 03 §11 |
 | 21 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
 | 22 | `OT-019` | The database still authenticates the application with a password | Chapter 04 §12 |
-| 23 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
-| 24 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
-| 25 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
+| 23 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
+| 24 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
+| 25 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
 | 26 | `OT-020` | The per-chapter `Dockerfile` has not kept up with the lab it ships beside | Chapter 05 |
+| 27 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
 
 ---
 
-## Closed threads (10)
+## Closed threads (11)
 
 Kept because the lineage is the point: you can trace any part of the final system back
 to the problem that forced it.
@@ -67,10 +68,11 @@ to the problem that forced it.
 | `OT-021` | `KEY-02` forges any identity in the estate, and a file mode is what stops it | Chapter 05 §12 | Chapter 06 |
 | `OT-022` | Nothing can be revoked | Chapter 05 §12 | Chapter 09 |
 | `OT-028` | Three roots in three chapters, because custody keeps being decided late | Chapter 07 §9 | Chapter 08 |
+| `OT-032` | Nothing distributes `CRL-01`, and it expires | Chapter 09 §7 | Chapter 10 |
 
 ---
 
-## Decisions (60)
+## Decisions (66)
 
 Every one records the alternatives and what would reverse it. Where a later chapter
 overturned an earlier decision, both are kept. Decisions about how the book itself is
@@ -138,3 +140,9 @@ written are not listed here.
 | `D-070` | Seven days for the intermediate's list | Chapter 09 |
 | `D-071` | The application refuses to start on an unusable CRL | Chapter 09 |
 | `D-072` | Ten years for the root's list | Chapter 09 |
+| `D-073` | Fetch over plain HTTP; verify the content, not the channel | Chapter 10 |
+| `D-074` | The publication point verifies nothing | Chapter 10 |
+| `D-075` | A separate machine publishes, and `hsm01` keeps a listener anyway | Chapter 10 |
+| `D-076` | The client remembers the highest `crlNumber` it has installed | Chapter 10 |
+| `D-077` | Every list in the bundle is checked, not the file | Chapter 10 |
+| `D-078` | `crlDistributionPoints` is documentation, not a mechanism | Chapter 10 |
