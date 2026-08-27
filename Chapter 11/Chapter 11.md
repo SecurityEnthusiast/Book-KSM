@@ -172,7 +172,7 @@ with a ninety second fuse, because nothing it checks is about how *long* a list 
 Ask the application whether anything is wrong:
 
 ```bash
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/healthz; echo
 curl -s http://127.0.0.1:8080/payments/1001/status
 ```
 
@@ -879,7 +879,7 @@ sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
 sudo docker exec -d -u paymentsvc dev01 \
     sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
 sleep 2
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/healthz; echo
 ```
 
 Expected: `{"status": "ok", "crl": ["ok       CN = Simurgh Lab Issuing CA 1 ...", "ok ..."]}`.
@@ -1264,15 +1264,26 @@ serving the last good file, which is exactly right and is why nothing is on fire
 Ask the question that matters:
 
 ```bash
-curl -s http://127.0.0.1:8080/healthz
-sudo docker exec -u paymentsvc dev01 crl-status --warn-days 6.9; echo "exit: $?"
+curl -s http://127.0.0.1:8080/healthz; echo
+sudo docker exec -u paymentsvc dev01 crl-status --warn-days 8; echo "exit: $?"
 ```
 
-Expected: `{"status": "ok", ...}`, then an `EXPIRING` line with `exit: 1`.
+Expected: `{"status": "ok", ...}` with about **7 days left**, then the **same file** reported as
+`EXPIRING` with `exit: 1`.
 
-**The threshold is doing the work.** At the configured two days the estate is genuinely fine: the
-list has most of a week left and one broken poll cycle is not an incident. Asked with a threshold
-just under the list's remaining life, the same command reports the same file as a problem.
+**The threshold is doing the work, and nothing else changed.** Same file, same command, same
+moment, two answers. At the configured two days the estate is genuinely fine: the list has most
+of a week left and a few broken poll cycles are not an incident.
+
+**Eight days is a deliberately silly number and it illustrates a real mistake.** The list only
+ever has seven days of life, so a threshold of eight can never be satisfied: the alert is red the
+instant the list is published and stays red forever. An alarm that is always on is an alarm
+people turn off, and then the next thing they turn off is the one that meant something.
+
+**So the threshold has an upper bound nobody writes down.** It must be comfortably less than the
+list's lifetime, or it reports a permanent emergency; and comfortably more than the refresh
+interval, or it fires on a single missed run. Two days against seven, refreshed every six hours,
+sits between those and is the only reason the number is defensible.
 
 That is the difference between monitoring a job and monitoring an outcome. The job has failed
 several times and the outcome is still good, and both of those facts are true and useful, and
@@ -1619,7 +1630,7 @@ for h in hsm01 pub01 dev01; do
       [ -r "$d/comm" ] && [ "$(cat $d/comm)" = "cron" ] && echo running && exit 0
     done; echo NOT RUNNING'
 done
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/healthz; echo
 ```
 
 Expected: five machines `Up` and `rootca` `Exited`; `cron running` three times; and a `200` with
