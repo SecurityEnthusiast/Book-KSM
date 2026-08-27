@@ -1,0 +1,71 @@
+# The authority's register, and the smallest configuration that operates it.
+#
+# WHY THIS FILE EXISTS AT ALL. Every certificate this build has issued since
+# Chapter 05 was produced with `openssl x509 -req`, which signs whatever it
+# is handed and records nothing. /var/lib/ca/issued/ is a directory of files,
+# not a register: it cannot answer "what have we issued", "what is still
+# valid", or "what did we take back". An authority that cannot answer the
+# third question cannot revoke, which is OT-022.
+#
+# `openssl ca` is the subcommand that keeps a register, and -gencrl is the
+# only thing in OpenSSL that produces a CRL. So the CA acquires a database
+# here, and it acquires it for revocation rather than for issuance: sign-leaf
+# is unchanged and still uses `x509 -req`. That split is deliberate and D-069
+# is where it is argued.
+#
+# NOTE WHAT IS NOT IN THIS FILE: private_key.
+#
+# `openssl ca` normally names the signing key here, and a pkcs11 URI with
+# pin-value= in it would work. It was measured, and it works. It is not used,
+# because that would put SEC-08 into a file on disk, which is Chapter 01's
+# entire subject. The key is named on the command line by revoke-cert and
+# crl-refresh instead, exactly as sign-leaf names it with -CAkey. D-067.
+#
+# Consequently this file holds no secret and is 0644, for the same reason
+# POL-02 is: a configuration nobody can read is a configuration nobody can
+# review.
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir               = /var/lib/ca
+
+# The register. One line per certificate the authority has been told about,
+# with its status, its expiry, its serial and its subject.
+database          = $dir/db/index.txt
+
+# A monotonic counter, separate from the certificate serial counter. Every
+# CRL carries one, and a client that has seen number 7 can tell that number 6
+# is stale. Without it a replayed old CRL is indistinguishable from a current
+# one, which matters because a CRL is a public file an attacker may be the
+# one delivering.
+crlnumber         = $dir/db/crlnumber
+
+# CERT-09, the intermediate. The CRL must be signed by the same authority
+# that signed the certificates it revokes, which is why the root's CRL is a
+# separate problem this chapter does not solve. See OT-034.
+certificate       = $dir/ica.crt
+
+default_md        = sha256
+
+# SEVEN DAYS, AND THIS NUMBER IS THE CHAPTER'S SHARPEST TRADE-OFF.
+#
+# A CRL carries nextUpdate. Past it, every verifier that is checking
+# revocation refuses EVERY certificate, not just revoked ones, with
+# `error 12: CRL has expired`. Measured, not assumed.
+#
+# So this number is not "how long a CRL is good for". It is "how long the
+# estate keeps working if nobody refreshes it". Short means an attacker's
+# window after a revocation is small and the operational burden is constant.
+# Long means the reverse. Seven days is chosen because this lab has a human
+# running crl-refresh by hand and no scheduler; a real estate runs it far
+# more often precisely because it has one. D-070, and OT-033.
+default_crl_days  = 7
+
+crl_extensions    = crl_ext
+
+[ crl_ext ]
+# Which key signed this list. A verifier holding two intermediates needs to
+# know which one is speaking, and this is how it tells.
+authorityKeyIdentifier = keyid:always

@@ -1,0 +1,25 @@
+# The client, on a timer. Installed for ACC-03 on HOST-01.
+#
+#   crontab -u paymentsvc /opt/paymentsvc/crontab
+#
+# EVERY THIRTY MINUTES, which is far more often than a seven day list needs.
+# The frequency is not about the deadline, it is about the gap between a
+# revocation being published and this client honouring it. Chapter 09 revoked
+# a certificate and Chapter 10 made the client fetch; this decides how long a
+# compromised certificate keeps working after somebody has taken it back.
+#
+# Thirty minutes is the answer for a lab. A real estate picks this number from
+# how long it is willing to be wrong, and then discovers that the number is
+# bounded below by how often the AUTHORITY republishes, which here is six
+# hours. Fetching every thirty minutes against a list refreshed every six is
+# eleven wasted requests out of twelve, and it is still right: the wasted
+# requests cost nothing and the alternative is a client that is up to six
+# hours behind its own publication point for no reason. D-080.
+#
+# fetch-crl refuses to install anything that fails a check and leaves the
+# working file alone, so a failed run is a no-op rather than an outage. That
+# property is what makes it safe to run this often and unattended.
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+*/30 * * * * fetch-crl --url http://pub01.lab.simurgh.example/crl.pem --anchors /opt/paymentsvc/ca-bundle.pem --install /var/lib/fetch-crl/crl.pem --state /var/lib/fetch-crl/state.json >>/var/lib/fetch-crl/fetch.out 2>&1
