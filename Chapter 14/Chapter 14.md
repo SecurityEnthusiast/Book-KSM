@@ -1810,7 +1810,100 @@ the key, is now the fastest: it notices on the next connection. PostgreSQL is th
 notices when told, and until this chapter nothing told it. The application sits between, bounded
 by a number somebody chose.
 
-**No machine, key or certificate changed.** Chapter 14 changed when things are checked, not what.
+**Figure 14.3 — the whole estate at the end of Stage 3, and the picture Stage 4 is measured
+against**
+
+```mermaid
+flowchart LR
+    subgraph OFF["HOST-05 rootca: no network, Exited. AR-004"]
+        ROOT[["KEY-05, CERT-08"]]:::crypto
+    end
+
+    subgraph LAB["NET-01 lab, one flat network: OT-024"]
+        direction TB
+
+        subgraph H4["HOST-04 hsm01"]
+            SIGND("SVC-03 signd<br/>★ strictest verifier in the estate<br/>rebuilds its store per connection"):::best
+            ICA[["KEY-06, CERT-09<br/>AR-003: the token is a file"]]:::crypto
+        end
+
+        subgraph H6["HOST-06 pub01: holds nothing"]
+            PUBD("SVC-04 pubd<br/>OT-038: single point of availability"):::control
+        end
+
+        subgraph H1["HOST-01 dev01"]
+            APP["APP-01 paymentsvc<br/>★ no connection outlives 300s"]:::app
+            CK{{"CERT-11 + key, 0400<br/>/var/lib/paymentsvc<br/>the only durable secret left"}}:::secret
+            STORE("SVC-02 secretstore<br/>no consumers, OT-011 + OT-044"):::retired
+        end
+
+        subgraph H2["HOST-02 db01"]
+            DB[("SVC-01 paymentsdb")]:::store
+            VER("verifies clients<br/>★ reload-crl after every fetch"):::control
+            DCRL{{"its own CRL, on a clock"}}:::secret
+        end
+
+        subgraph H3["HOST-03 ca01"]
+            OPS(["ACC-01 you"]):::human
+        end
+    end
+
+    ROOT ==>|"signs once, ceremony only"| ICA
+    ICA ==>|"signs CERT-11"| CK
+    OPS -->|"request-cert"| SIGND
+    SIGND -.->|"★ can now refuse ca01,<br/>the only caller it has: OT-027"| OPS
+    PUBD -.->|"CRL-01 every 30m"| DCRL
+    PUBD -.->|"CRL-01 every 30m"| APP
+    ICA -.->|"★ read on next connection"| SIGND
+    CK ==>|"mTLS: the app proves who it is"| VER
+    VER --> DB
+    DCRL -.->|"revoked clients refused<br/>during the handshake"| VER
+
+    style OFF fill:#ecfdf5,stroke:#15803d,stroke-width:3px,stroke-dasharray:8 4
+    style LAB fill:#f8fafc,stroke:#475569,stroke-width:1px,stroke-dasharray:6 3
+    style H1 fill:#ffffff,stroke:#475569,stroke-width:1px
+    style H2 fill:#ffffff,stroke:#475569,stroke-width:1px
+    style H3 fill:#ffffff,stroke:#475569,stroke-width:1px
+    style H4 fill:#f0fdf4,stroke:#15803d,stroke-width:2px
+    style H6 fill:#f1f5f9,stroke:#94a3b8,stroke-width:1px
+
+    classDef human fill:#ffffff,stroke:#4b5563,stroke-width:2px,stroke-dasharray:4 3,color:#111827
+    classDef app fill:#e5e7eb,stroke:#6b7280,stroke-width:1px,color:#111827
+    classDef control fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px,color:#0b1f4b
+    classDef best fill:#dcfce7,stroke:#15803d,stroke-width:3px,color:#052e16
+    classDef crypto fill:#fee2e2,stroke:#b91c1c,stroke-width:4px,color:#450a0a
+    classDef store fill:#e2e8f0,stroke:#475569,stroke-width:1px,color:#0f172a
+    classDef secret fill:#fef3c7,stroke:#b45309,stroke-width:2px,color:#451a03
+    classDef retired fill:#f8fafc,stroke:#cbd5e1,stroke-width:1px,stroke-dasharray:2 4,color:#94a3b8
+```
+
+**No machine, key or certificate changed in this chapter.** Chapter 14 changed *when* things are
+checked, not what exists. That is why it took until now to draw: a figure that repeats the
+previous one is padding, which is why Chapter 13 correctly drew none.
+
+**It is drawn here anyway, and the reason is Chapter 15.** The next chapter changes the substrate
+underneath every box in this picture. A reader needs one complete image of what the estate *is*
+before it is rebuilt, or every Stage 4 comparison becomes an argument about what was there
+before. This is that image, and `PROC-12`'s capture is its machine-readable half.
+
+**`HOST-04` is green now.** The machine holding the key became the strictest verifier in the
+estate: it checks revocation on every connection, with no reload and no restart. The dotted arrow
+back to `ca01` is new and is the uncomfortable part — `SVC-03` can refuse the only caller it has,
+and recovery is a human on `hsm01` issuing by hand (`PROC-13`, `OT-027`).
+
+**Three boxes carry an `AR-` label for the first time.** `rootca` is offline by convention rather
+than control, the token is a file root can copy, and neither is a problem more care fixes.
+Drawing them as accepted risks rather than leaving them undrawn is the point of `D-094`: a label
+that hides the thing it names has described a different system.
+
+**What is still amber on `HOST-01`** is one key and one certificate, at `/var/lib/paymentsvc`
+rather than `/opt/paymentsvc`, because the application must be able to replace its own identity
+during an incident and must not be able to rewrite its own configuration. The two requirements
+need two directories.
+
+**`SVC-02` stays dotted and gained a second thread.** It has no consumers (`OT-011`) and now
+carries dead code on a credential path (`OT-044`), which is what happens to a component nobody
+calls: it stops being maintained before it stops existing.
 
 ### Current one-line state
 
