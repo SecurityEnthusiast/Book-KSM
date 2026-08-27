@@ -176,15 +176,20 @@ curl -s http://127.0.0.1:8080/healthz
 curl -s http://127.0.0.1:8080/payments/1001/status
 ```
 
-Expected: `{"status": "ok"}`, and the payment record. The estate is healthy and is ninety seconds
-from an outage.
+Expected: `{"status": "ok"}`, and the payment record.
+
+**`/healthz` is lying, and it is not lying about anything subtle.** It has returned a hardcoded
+`ok` since Chapter 01, so it will say that with the database unreachable, with the CRL expired,
+and with this process ninety seconds from refusing every certificate in the estate. The payment
+record is honest, because a query really did run. The health check is decoration, and `§4` is
+where it stops being.
 
 Wait it out:
 
 ```bash
 sleep 100
 sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
-sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1
+sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 | tail -4
 ```
 
 Expected, ending in:
@@ -450,8 +455,8 @@ echo "exit: $?"
 Expected:
 
 ```
-ok       CN=Simurgh Lab Issuing CA 1  crlNumber 0x...  6.9x days left  (nextUpdate ...)
-ok       CN=Simurgh Lab Root CA  crlNumber 0x...  3649.xx days left  (nextUpdate ...)
+ok       CN = Simurgh Lab Issuing CA 1  crlNumber 0x...  6.9x days left  (nextUpdate ...)
+ok       CN = Simurgh Lab Root CA  crlNumber 0x...  3649.xx days left  (nextUpdate ...)
 exit: 0
 ```
 
@@ -877,7 +882,7 @@ sleep 2
 curl -s http://127.0.0.1:8080/healthz
 ```
 
-Expected: `{"status": "ok", "crl": ["ok       CN=Simurgh Lab Issuing CA 1 ...", "ok ..."]}`.
+Expected: `{"status": "ok", "crl": ["ok       CN = Simurgh Lab Issuing CA 1 ...", "ok ..."]}`.
 
 Now make it tell the truth about a bad situation, using the ninety second trick from `§1`:
 
@@ -895,24 +900,45 @@ sudo docker exec -u paymentsvc dev01 fetch-crl \
     --anchors /opt/paymentsvc/ca-bundle.pem \
     --install /var/lib/fetch-crl/crl.pem \
     --state /var/lib/fetch-crl/state.json >/dev/null
-curl -s -o /dev/null -w "before expiry: HTTP %{http_code}\n" http://127.0.0.1:8080/healthz
+echo "--- while the list is still valid ---"
+curl -s -w "\nHTTP %{http_code}\n" http://127.0.0.1:8080/healthz
 sleep 100
-curl -s -w "\nafter expiry: HTTP %{http_code}\n" http://127.0.0.1:8080/healthz
+echo "--- after it has expired ---"
+curl -s -w "\nHTTP %{http_code}\n" http://127.0.0.1:8080/healthz
 ```
 
-Expected:
+Expected `503` **both times**, with the word in the first field changing:
 
 ```
-before expiry: HTTP 200
+--- while the list is still valid ---
+{"status": "degraded", "crl": ["EXPIRING CN = Simurgh Lab Issuing CA 1 ... 0.00 days left ...",
+"ok       CN = Simurgh Lab Root CA ... 3649.xx days left ..."]}
+HTTP 503
 
-{"status": "degraded", "crl": ["EXPIRED  CN=Simurgh Lab Issuing CA 1 ... -0.00 days left ...",
-"ok       CN=Simurgh Lab Root CA ..."]}
-after expiry: HTTP 503
+--- after it has expired ---
+{"status": "degraded", "crl": ["EXPIRED  CN = Simurgh Lab Issuing CA 1 ... -0.00 days left ...",
+"ok       CN = Simurgh Lab Root CA ... 3649.xx days left ..."]}
+HTTP 503
 ```
+
+**Read the first one again: `503` while the list is still working.** Nothing is broken at that
+moment. Every certificate still verifies, the application still serves, and the endpoint is
+already complaining, because ninety seconds is a great deal less than the two days `warn_days`
+allows.
+
+**That is the whole purpose of a threshold, and it is easy to mistake for a false alarm.** An
+alert that fires when the list expires fires at the same instant as the outage, which is the same
+as having no alert. `EXPIRING` means there is still time to act. `EXPIRED` means there is not.
+The only difference between those two words is whether anybody was told early enough for it to
+matter.
 
 **`503`, not `200` with a flag inside.** A monitoring system reads the status line. A field
 buried in a `200` body is a thing somebody has to remember to look at, which is precisely the
 failure this chapter is about.
+
+**And notice the root's line in both.** Three thousand six hundred days, reported calmly, beside
+an authority that has already stopped working. The bundle has one health and it is the health of
+its worst member.
 
 Notice also that the application is **still running and still serving**. It has not crashed; it
 has declared itself unfit. Those are different, and the second is what you want from a component
