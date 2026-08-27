@@ -1,0 +1,27 @@
+# PROC-08 on a timer. Installed for ACC-09 on HOST-04.
+#
+#   crontab -u signd /var/lib/ca/crontab
+#
+# WHAT THE REDIRECT DOES AND DOES NOT BUY. Measured on Debian 12: a cron job
+# that writes to stderr on these machines writes to nowhere. There is no MTA
+# and no syslog, cron reports by mailing output, and mailing output on a host
+# with no mail transport is discarding it. Nothing under /var/log or
+# /var/spool records that the job ran, let alone that it failed.
+#
+# So `>>` and `2>&1` are here to make diagnosis possible, not to make failure
+# visible. They capture what the job SAID. They do not capture whether it
+# FAILED: a run that exits 3 and a run that prints a warning leave the same
+# kind of line in the same file, and nobody is reading the file either way.
+#
+# What actually notices is crl-status, on the client, looking at the artefact
+# this job is supposed to keep fresh. That is OT-039's answer and the reason
+# this file is not the point of Chapter 11.
+#
+# EVERY SIX HOURS, against a list that lives seven days. Four runs a day means
+# twenty-seven consecutive failures before the estate stops verifying, which
+# is enough margin to notice and not so much that the procedure goes stale.
+# D-079.
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+0 */6 * * * crl-refresh >>/var/log/crl-refresh.out 2>&1

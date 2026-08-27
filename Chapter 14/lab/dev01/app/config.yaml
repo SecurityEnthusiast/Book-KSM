@@ -1,0 +1,99 @@
+# /opt/paymentsvc/config.yaml
+database:
+  host: db01.lab.simurgh.example
+  port: 5432
+  name: paymentsdb
+  sslmode: verify-full
+  # Chapter 12. The role this process logs in as, and there is no password
+  # anywhere in this file or in the secret store to go with it.
+  #
+  # This name has to equal the Common Name of the certificate below.
+  # PostgreSQL's `cert` authentication takes the CN and requires it to match
+  # the role being requested; measured, a valid certificate naming anything
+  # else is refused with `certificate authentication failed for user`.
+  #
+  # Note what the name is NOT. Every other certificate in this estate is named
+  # for a machine. This one is named for a workload, because the thing being
+  # authenticated is the application and not the host it happens to run on.
+  user: paymentsvc
+  # Chapter 14. The longest this process will use a connection without the
+  # database checking its certificate again.
+  #
+  # Every check db01 makes happens in the TLS handshake, so a connection that
+  # is never re-made is never re-checked. Measured: a revoked certificate goes
+  # on serving on an open socket indefinitely. Bounding the age turns
+  # verification from a state back into an event.
+  #
+  # 300 seconds against a measured handshake cost of 10 to 12 ms is one extra
+  # handshake per five minutes. The number is not chosen for performance, it
+  # is chosen for how long the estate is willing to be wrong.
+  max_connection_age: 300
+  # CERT-11 and its key. The certificate is the chain, leaf followed by
+  # CERT-09, for the reason every other holder here presents a chain: the
+  # server can build the path itself today, and that depends on somebody
+  # else's configuration staying right.
+  #
+  # NOT in /opt/paymentsvc, and Chapter 10 learned why the hard way. That
+  # directory is root-owned so that APP-01 cannot rewrite its own
+  # configuration, which has been true since Chapter 01. Creating a key
+  # there, and replacing it during an incident, both need write permission
+  # on the DIRECTORY and not merely on the file. So the identity lives
+  # where ACC-03 owns the directory, exactly as the CRL does.
+  sslcert: /var/lib/paymentsvc/client.crt
+  sslkey: /var/lib/paymentsvc/client.key
+  # Chapter 05: the anchor is the authority, not the server.
+  #
+  # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01
+  # presents. Pinning that meant re-issuing db01's certificate broke this
+  # client, which is OT-017. Now it is CERT-02, the root, and db01 can be
+  # re-issued as often as it likes without this line or this file changing.
+  #
+  # The path is the only thing that had to change on the client. That is
+  # the whole payoff, and it is a one-time cost.
+  sslrootcert: /opt/paymentsvc/ca.crt
+  # Chapter 09: check whether the certificate has been taken back.
+  #
+  # The anchor above answers "did our authority sign this". It cannot answer
+  # "does our authority still stand behind it", and those became different
+  # questions the moment a credential was stolen. This line is the second
+  # question.
+  #
+  # It is not a free improvement. With this set, libpq refuses any
+  # certificate whose revocation status it cannot establish: no file, an
+  # unreadable file, or a list past its nextUpdate all stop this application
+  # from starting, healthy certificates included. Deleting the line turns
+  # revocation checking off and everything works again, which is exactly why
+  # it is worth knowing that the line is load-bearing.
+  #
+  # Chapter 10: moved out of this directory, and the reason is least privilege
+  # rather than tidiness. The list is now maintained by fetch-crl, running as
+  # `paymentsvc`, and an atomic replace needs a temporary file in the same
+  # directory as the target. Granting that here would make /opt/paymentsvc
+  # writable by the application, which would let APP-01 rewrite its own
+  # configuration, and that has been forbidden since Chapter 01.
+  #
+  # A revocation list is not configuration. It is state an agent maintains, so
+  # it lives where the agent can own it.
+  sslcrl: /var/lib/fetch-crl/crl.pem
+# Chapter 12: still configured, and no longer used for the database.
+#
+# SVC-02 has no consumer as of this chapter. That is not a reason to delete
+# it, and the chapter says why: a store with nothing in it is the correct
+# outcome of removing the thing it was holding, and the next secret this
+# estate acquires will want somewhere to live. What it does mean is that
+# OT-011, a single point of total compromise holding everything in
+# plaintext, currently holds nothing worth compromising.
+secret_store:
+  socket: /run/secretstore/sock
+  secret_name: paymentsvc-db
+server:
+  listen: 0.0.0.0:8080
+
+# Chapter 11. How close to the deadline counts as a problem.
+#
+# Two days against the intermediate's seven means two consecutive missed
+# refreshes are needed before /healthz goes amber, so a single missed run is
+# not an incident and a broken pipeline is. Set it too low and the alarm
+# arrives at the same time as the outage, which is the same as no alarm.
+crl:
+  warn_days: 2

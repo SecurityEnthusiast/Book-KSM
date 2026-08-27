@@ -43,8 +43,10 @@ database          = $dir/db/index.txt
 crlnumber         = $dir/db/crlnumber
 
 # CERT-09, the intermediate. The CRL must be signed by the same authority
-# that signed the certificates it revokes, which is why the root's CRL is a
-# separate problem this chapter does not solve. See OT-034.
+# that signed the certificates it revokes, so the root has to sign its own
+# list separately: that is `root-crl` on rootca, a machine kept switched
+# off. crl-refresh refuses to run without it. What stays unsolved is the
+# response time of that ceremony. See OT-035.
 certificate       = $dir/ica.crt
 
 default_md        = sha256

@@ -1289,7 +1289,7 @@ sudo docker exec ca01 chown ca:ca /tmp/rogue.crt /tmp/rogue.key
 ```
 
 That last line is not tidying. `openssl` writes a private key `0600` whatever your umask says,
-which Chapter 06 §6.2 measured, and `docker cp` carries the mode across and lands the file owned
+which Chapter 04 §6.2 measured, and `docker cp` carries the mode across and lands the file owned
 by root. Without the `chown`, `curl` running as `ca` cannot read its own key and fails with:
 
 ```
@@ -1353,7 +1353,7 @@ Every deployment that treats "the client presented a valid certificate" as autho
 collapsed these two boxes into one, and the population it has then authorised is *everyone the
 CA has ever issued to*.
 
-This is the third time this build has made the same mistake in a different place. Chapter 03
+This is the third time this build has made the same mistake in a different place. Chapter 02
 §7.4 created `paymentsvc_a`, watched it authenticate, and watched it be refused the table,
 because `CREATE ROLE` makes a login and not a permission. Chapter 04 §8.1 found that `verify-
 ca` accepts any certificate the authority ever signed, including one an attacker legitimately

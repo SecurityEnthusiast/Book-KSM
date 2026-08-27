@@ -1,0 +1,23 @@
+# The mirror, on a timer. Installed for ACC-11 on HOST-06.
+#
+#   crontab -u pub /srv/pub/crontab
+#
+# pull-artifacts already knows how to loop, and this replaces that loop rather
+# than adding to it. A process that sleeps forever and a cron entry are two
+# ways to say the same thing, and only one of them survives the process being
+# killed, the container being restarted, or somebody forgetting to start it
+# after `docker start`. That is OT-009, and cron is the smallest thing that
+# answers it on a machine with no init system.
+#
+# --once, because cron owns the timing now. Leaving --interval in as well
+# would mean two schedules disagreeing, and the one that wins would be
+# whichever process happened to still be alive.
+#
+# EVERY TEN MINUTES. This machine is downstream of hsm01 and upstream of every
+# client, so its staleness adds to both. It costs one HTTP request against a
+# file that rarely changes, and pull-artifacts prints `unchanged` and writes
+# nothing when it has not.
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+*/10 * * * * pull-artifacts --from http://hsm01.lab.simurgh.example:8080 --once >>/var/log/pull-artifacts.out 2>&1
