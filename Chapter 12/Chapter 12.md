@@ -1508,18 +1508,29 @@ sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 
 sudo docker exec dev01 sh -c 'chmod 0400 /var/lib/paymentsvc/client.key'
 ```
 
-Expected, ending in:
+Expected, ending in a traceback whose last line is:
 
 ```
-private key file "/var/lib/paymentsvc/client.key" has group or world access; file must have
-permissions u=rw (0600) or less if owned by the current user, or permissions u=rw,g=r (0640)
-or less if owned by root
+psycopg2.OperationalError: connection to server at "db01.lab.simurgh.example" (172.x.x.x),
+port 5432 failed: private key file "/var/lib/paymentsvc/client.key" has group or world access;
+file must have permissions u=rw (0600) or less if owned by the current user, or permissions
+u=rw,g=r (0640) or less if owned by root
 ```
+
+**Read where that sentence changes speaker.** The first half is `psycopg2` reporting that a
+connection failed. The second half is libpq, which never asked the server anything: it looked at
+the key file, decided it was unfit to use, and reported the refusal in the shape of a connection
+error. `db01` was not consulted and its log has nothing to say about this.
 
 **That is one of the clearest errors in this build**, and it is worth noticing what it does not
 do: it does not warn and continue. A private key that others can read is treated as a
-configuration error rather than a risk to be accepted, which is the behaviour Chapter 09 had to
-write by hand for the CRL because libpq would not do it there.
+configuration error rather than a risk to be accepted.
+
+**Which makes libpq's inconsistency worth naming.** It fails closed and loudly on a key file with
+the wrong mode, and Chapter 09 measured it failing **open and silently** on a CRL file it cannot
+load. Same library, same category of input, opposite behaviour, and the reason `check_crl_usable`
+exists is that the second case had to be written by hand. Nothing in the documentation of either
+prepares you for the difference.
 
 Restart the application:
 
