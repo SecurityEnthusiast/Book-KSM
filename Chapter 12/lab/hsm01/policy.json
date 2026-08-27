@@ -1,0 +1,6 @@
+{
+  "ca01.lab.simurgh.example": [
+    "db01.lab.simurgh.example",
+    "paymentsvc"
+  ]
+}

@@ -1,0 +1,27 @@
+# The database, on a timer. Installed for `postgres` on HOST-02.
+#
+#   crontab -u postgres /var/lib/postgresql/crontab
+#
+# WHY THE DATABASE NOW HAS A CRON JOB AT ALL. From Chapter 12 db01 verifies
+# client certificates, which means it checks revocation, which means it needs
+# a current CRL. It has become the estate's second verifier, and a verifier
+# that cannot get a fresh list is a verifier that refuses everybody.
+#
+# That is the half of OT-037 this chapter closes and the new risk it brings.
+# Before Chapter 12, a stale CRL on db01 was impossible because db01 had no
+# CRL. Now a stale one takes the database offline for every client at once,
+# which is a larger blast radius than the same failure on dev01.
+#
+# EVERY THIRTY MINUTES, matching dev01. Both are clients of the same
+# publication point with the same seven day list, and there is no reason for
+# them to disagree about how far behind they are willing to be.
+#
+# WHAT IS MISSING, and it is deliberate rather than forgotten: nothing on
+# this machine reports how much life the installed list has left. dev01 has
+# /healthz because APP-01 is an HTTP service that was already being polled.
+# PostgreSQL is not, so the same question has to be asked from outside, by
+# hand, with crl-status. OT-040 on a second machine.
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+*/30 * * * * fetch-crl --url http://pub01.lab.simurgh.example/crl.pem --anchors /etc/postgresql/15/main/ca-bundle.pem --install /var/lib/postgresql/crl/crl.pem --state /var/lib/postgresql/crl/state.json >>/var/lib/postgresql/crl/fetch.out 2>&1
