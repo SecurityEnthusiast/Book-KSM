@@ -207,11 +207,24 @@ sudo docker cp dev01:/var/lib/fetch-crl/crl.pem /tmp/stale.pem
 sudo docker cp /tmp/stale.pem ca01:/opt/ca-client/stale.pem
 sudo docker exec ca01 chown ca:ca /opt/ca-client/stale.pem
 sudo docker exec -u ca ca01 openssl verify -crl_check \
-    -CAfile /opt/ca-client/ca.crt -CRLfile /opt/ca-client/stale.pem \
+    -CAfile /opt/ca-client/ca.crt \
+    -untrusted /opt/ca-client/ca01.crt \
+    -CRLfile /opt/ca-client/stale.pem \
     /opt/ca-client/ca01.crt 2>&1 | tail -2
 ```
 
 Expected: a `nextUpdate` in the past, then `error 12 at 0 depth lookup: CRL has expired`.
+
+**`-untrusted` is not decoration and leaving it out changes the answer.** `ca01.crt` has held
+`CERT-07` followed by `CERT-09` since Chapter 08, and `-CAfile` names the root alone. Without the
+intermediate offered as an untrusted certificate, `openssl` cannot build a path from the leaf to
+the anchor and stops at `error 20, unable to get local issuer certificate`, which is Chapter 10's
+missing-chain failure and has nothing to do with expiry. Path building happens **before**
+revocation is evaluated, so a chain problem masks a CRL problem every time.
+
+Passing the chain file as both `-untrusted` and the target is deliberate: `openssl verify` takes
+the first certificate in the file as the thing to verify and treats the rest as available
+intermediates.
 
 ### 1.1 What would have prevented it
 

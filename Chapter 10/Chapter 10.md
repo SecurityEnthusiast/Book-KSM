@@ -1893,14 +1893,21 @@ Confirm that what `pub01` now serves is beyond reproach:
 
 ```bash
 sudo docker exec ca01 sh -c '
-  curl -sS -o /tmp/served.pem http://pub01.lab.simurgh.example/crl.pem
+  curl -sS -o /tmp/served.pem   http://pub01.lab.simurgh.example/crl.pem
+  curl -sS -o /tmp/anchors.pem  http://pub01.lab.simurgh.example/ca-bundle.pem
   awk "/BEGIN/{n++} n==1" /tmp/served.pem > /tmp/served-ica.pem
-  openssl crl -in /tmp/served-ica.pem -noout -CAfile /opt/ca-client/ca.crt -verify 2>&1 || true
+  openssl crl -in /tmp/served-ica.pem -noout -CAfile /tmp/anchors.pem -verify
   openssl crl -in /tmp/served-ica.pem -noout -crlnumber -nextupdate'
 ```
 
-Expected: a signature complaint about the anchor only if `ca01` lacks the intermediate, then a
-`crlNumber` **lower** than the one the client installed, with a `nextUpdate` still in the future.
+Expected: `verify OK`, then a `crlNumber` **lower** than the one the client installed, with a
+`nextUpdate` still in the future.
+
+**`-CAfile` is the bundle, not the anchor, and that is not a shortcut.** This list was signed by
+`CERT-09`, so verifying it needs `CERT-09`. Against the root alone `openssl` answers `Error
+getting CRL issuer certificate`, which looks like the list is bad and means only that the
+verifier was not given enough to check it. The same distinction bites libpq, which is why
+`CRL_CHECK_ALL` needs both authorities present and why `ca-bundle.pem` exists.
 
 The file is real. It was signed by the authority, it has not expired, and nothing about it is
 malformed. It is simply **old**.
