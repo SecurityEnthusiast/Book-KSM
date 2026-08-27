@@ -291,17 +291,495 @@ Add the rule:
 sudo docker cp hsm01/policy.json hsm01:/etc/signd/policy.json
 sudo docker exec hsm01 chmod 0644 /etc/signd/policy.json
 sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/paymentsvc.csr paymentsvc
+sudo docker exec -u ca ca01 \
+    openssl x509 -in /opt/ca-client/issued/paymentsvc.crt -noout -ext extendedKeyUsage
 ```
 
-Expected: `leaf:` and `chain:` lines, `subject=CN = paymentsvc`, and `issuer=CN = Simurgh Lab
-Issuing CA 1`.
+Expected: an issued certificate, and then:
+
+```
+X509v3 Extended Key Usage:
+    TLS Web Server Authentication
+```
 
 **`POL-02` is re-read on every request**, which Chapter 07 chose deliberately, so no restart was
 needed. Note also what the policy now contains: a hostname and a workload name, side by side,
 with nothing in the file marking which is which. That is `OT-016`'s complaint arriving at
 `POL-02`.
 
+### 3.1 A capability that exists in a tool and not in its interface
+
+**`serverAuth`, on a certificate whose entire job is to authenticate a client.** PostgreSQL
+refuses that with `sslv3 alert unsupported certificate`, which is the error Chapter 07 §5.1
+spends a page on: it names neither the field nor the purpose, and it arrives before any policy is
+consulted.
+
+`sign-leaf` has had a `--client` flag since Chapter 07. `SVC-03` never passed it:
+
+```bash
+sudo docker exec -u signd hsm01 grep -n "sign-leaf" /usr/local/bin/signd | head -3
+```
+
+Expected, before the fix below, a call with no `--client` anywhere in it.
+
+**Nobody noticed for five chapters**, and the reason is worth sitting with. The only client
+certificate this estate had was `CERT-07`, issued **by hand** on `hsm01` in Chapter 07 §5,
+because of the bootstrap problem: `signd` could not issue the certificate `signd`'s own caller
+needed. The flag was written, exercised by hand, and never reachable through the API.
+
+**A capability that exists in a tool and not in the interface to it is a capability nobody has.**
+
+Wire it through. `signd` takes a `usage` field and `request-cert` gains the matching flag:
+
+```bash
+sudo docker cp hsm01/signd.py       hsm01:/usr/local/bin/signd
+sudo docker cp ca01/request-cert.sh ca01:/usr/local/bin/request-cert
+sudo docker exec hsm01 chmod 0755 /usr/local/bin/signd
+sudo docker exec ca01 chmod 0755 /usr/local/bin/request-cert
+sudo docker exec -u signd hsm01 stop-signd
+sudo docker exec -d -u signd hsm01 \
+    sh -c 'python3 /usr/local/bin/signd >>/var/log/signd.out 2>&1'
+sleep 1
+sudo docker exec -u ca ca01 request-cert --client \
+    /opt/ca-client/requests/paymentsvc.csr paymentsvc
+sudo docker exec -u ca ca01 openssl x509 -in /opt/ca-client/issued/paymentsvc.crt \
+    -noout -subject -ext extendedKeyUsage
+```
+
+Expected: `usage: client`, an issued certificate, `subject=CN = paymentsvc`, and:
+
+```
+X509v3 Extended Key Usage:
+    TLS Web Client Authentication
+```
+
+**`POL-02` governs names and says nothing about usages.** A caller permitted to request a name
+may now request it as either kind of certificate. That is not obviously wrong, since the name is
+what the certificate asserts, and it is unexamined, which is the complaint. `OT-042`.
+
 Install it:
+
+The two files that changed, in full:
+
+```python
+#!/usr/bin/env python3
+"""SVC-03 signd, the signing service on HOST-04 hsm01.
+
+The token lives here and nothing else does. Callers send a certificate request
+over mTLS and get a certificate back; the key never leaves this machine, and
+after Chapter 07 it never leaves this machine's token either.
+
+CHAPTER 08 CHANGES ALMOST NOTHING HERE, WHICH IS THE POINT. The key this
+service signs with is now an intermediate rather than a root, and the code did
+not need to know: sign-leaf changed a token label and this file gained one
+field in its reply. What changed is what a compromise of this host costs. An
+attacker who takes this machine can issue certificates under CERT-09 until
+CERT-09 is replaced, and replacing it is a ceremony on a machine that is
+switched off, which touches no client at all. Before Chapter 08 the same
+attacker took the estate's trust anchor.
+
+The one field is `chain`. A leaf signed by an intermediate does not verify
+against the root on its own, so every reply now carries the issuer beside the
+certificate. Callers that ignore it get a certificate that works nowhere, with
+an error naming neither this service nor the missing file.
+
+Three things this deliberately does, and one it deliberately does not.
+
+DOES take the caller's identity from the TLS layer rather than from the request.
+The client certificate is checked against CERT-05 by the kernel of the TLS
+handshake before a single byte of the request body is read, and the name comes
+out of that certificate. It is Chapter 03's SO_PEERCRED argument moved onto a
+network: an observation, not a claim.
+
+DOES consult POL-02 on every request. mTLS answers "did our authority sign your
+certificate" and nothing else. Any holder of any certificate we ever issued can
+open this connection, which is exactly what Chapter 07 section 5 demonstrates,
+so authentication and authorization stay separate questions.
+
+DOES record every decision, allowed or refused, with the identity the TLS layer
+reported and the name that was requested. SVC-02 has done this since Chapter 02
+and the authority has never done it at all.
+
+DOES NOT hold the key. It shells out to sign-leaf, which asks the token. This
+process could be compromised entirely and the attacker would gain the ability to
+request signatures while this process lives, not a key they can keep.
+"""
+import http.server
+import json
+import os
+import re
+import ssl
+import subprocess
+import sys
+import threading
+import tempfile
+import datetime
+
+LISTEN = ("0.0.0.0", 8443)
+CA_CRT = "/var/lib/ca/ca.crt"                 # CERT-08, the root we verify clients
+                                              # against. Holds TWO roots during
+                                              # the Chapter 08 overlap, because a
+                                              # trust anchor is a bundle and not
+                                              # a certificate. That is the fact
+                                              # that made all three of this
+                                              # build's root migrations survivable.
+SRV_CRT = "/var/lib/ca/signd.crt"             # CERT-06 followed by CERT-09. This
+                                              # file must hold the CHAIN, not the
+                                              # leaf alone, or no client can build
+                                              # a path from us to the root.
+SRV_KEY = "/var/lib/ca/signd.key"
+ICA_CRT = "/var/lib/ca/ica.crt"               # CERT-09, returned with every leaf
+CRL = "/var/lib/ca/crl.pem"                   # CRL-01, both lists, public
+PUBLIC_LISTEN = ("0.0.0.0", 8080)             # see PublicHandler
+POLICY = "/etc/signd/policy.json"             # POL-02
+AUDIT = "/var/log/signd-audit.log"
+
+# A name we will sign for has to look like a hostname. This is not a security
+# control, it is a guard against a malformed request becoming a malformed
+# openssl invocation; POL-02 is the control.
+NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
+
+
+def audit(caller, requested, decision, detail=""):
+    """Append one line per decision. Allowed and refused both, or the log only
+    tells you about the requests that worked."""
+    line = "\t".join([
+        datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        f"caller={caller}", f"requested={requested}",
+        f"decision={decision}", detail,
+    ])
+    with open(AUDIT, "a") as fh:
+        fh.write(line + "\n")
+    print(line, flush=True)
+
+
+def load_policy():
+    """Re-read on every request, so an edit takes effect on the next call.
+    Inefficient and deliberate, exactly as POL-01 is in SVC-02."""
+    with open(POLICY) as fh:
+        return json.load(fh)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "signd/1.0"
+
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def peer_name(self):
+        """Who is calling, according to the certificate they proved they hold.
+
+        getpeercert() returns the parsed client certificate. It is present only
+        because the context was built with CERT_REQUIRED, so by the time this
+        runs the chain has already been verified against CERT-05. Nothing here
+        trusts anything the caller wrote in the request.
+        """
+        cert = self.connection.getpeercert()
+        if not cert:
+            return None
+        for dns in [v for k, v in cert.get("subjectAltName", ()) if k == "DNS"]:
+            return dns
+        subject = dict(x[0] for x in cert.get("subject", ()))
+        return subject.get("commonName")
+
+    def do_POST(self):
+        caller = self.peer_name() or "unknown"
+        if self.path != "/v1/sign":
+            return self._json(404, {"error": "not found"})
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 16384:
+            audit(caller, "-", "deny", "detail=bad request size")
+            return self._json(400, {"error": "csr required, 16k max"})
+        try:
+            req = json.loads(self.rfile.read(length))
+            csr, fqdn = req["csr"], req["fqdn"]
+            extra = req.get("alt_names", [])
+            # CHAPTER 12. sign-leaf has had --client since Chapter 07 and this
+            # service never passed it, because the only client certificate in
+            # the estate was issued by hand during the bootstrap in Chapter 07
+            # section 5. The first one requested through the API arrived five
+            # chapters later, stamped serverAuth, and was refused by PostgreSQL
+            # with `sslv3 alert unsupported certificate`: the same error
+            # Chapter 07 section 5.1 spends a page on, and the same cause.
+            #
+            # A capability that exists in a tool and not in the interface to it
+            # is a capability nobody has.
+            usage = req.get("usage", "server")
+        except Exception:
+            audit(caller, "-", "deny", "detail=malformed json")
+            return self._json(400, {"error": "malformed request"})
+
+        if usage not in ("server", "client"):
+            audit(caller, fqdn, "deny", f"detail=unknown usage {usage!r}")
+            return self._json(400, {"error": f"usage must be server or client: {usage}"})
+
+        for name in [fqdn] + list(extra):
+            if not isinstance(name, str) or not NAME_RE.match(name):
+                audit(caller, fqdn, "deny", f"detail=bad name {name!r}")
+                return self._json(400, {"error": f"not a hostname: {name}"})
+
+        # POL-02. mTLS said who is calling. This says whether they may speak
+        # for the name they are asking for, which is a different question and
+        # the one Chapter 03 section 7.4 is about.
+        # POL-02 answers which NAMES this caller may request. It has nothing
+        # to say about which USAGE, so a caller permitted to request a name
+        # may request it as either a server or a client certificate. That is
+        # OT-042 and it is not obviously wrong, because the name is what the
+        # certificate asserts; it is unexamined, which is the complaint.
+        allowed = load_policy().get(caller, [])
+        if fqdn not in allowed:
+            audit(caller, fqdn, "deny", "detail=POL-02 does not permit")
+            return self._json(403, {
+                "error": "denied", "you_are": caller, "requested": fqdn,
+                "detail": "POL-02 does not permit this caller to request this name",
+            })
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "req.csr")
+            with open(path, "w") as fh:
+                fh.write(csr)
+            # sign-leaf owns the token interaction. This process never sees a
+            # key, and could not leak one if it were compromised.
+            argv = ["/usr/local/bin/sign-leaf"]
+            if usage == "client":
+                argv.append("--client")
+            argv += [path, fqdn] + list(extra)
+            proc = subprocess.run(argv, capture_output=True, text=True)
+            if proc.returncode != 0:
+                audit(caller, fqdn, "error", f"detail=sign-leaf exit {proc.returncode}")
+                return self._json(500, {"error": "signing failed"})
+            issued = f"/var/lib/ca/issued/{fqdn}.crt"
+            with open(issued) as fh:
+                cert = fh.read()
+
+        # The issuer travels with the certificate. It is public, it is the
+        # same bytes for every caller, and sending it is the difference
+        # between a certificate that works and one that fails at whichever
+        # client is unlucky enough to be first.
+        with open(ICA_CRT) as fh:
+            chain = fh.read()
+
+        audit(caller, fqdn, "allow", f"detail=issued {fqdn} usage={usage}")
+        return self._json(200, {"certificate": cert, "chain": chain,
+                                "issued_for": fqdn})
+
+    def do_GET(self):
+        if self.path == "/healthz":
+            return self._json(200, {"status": "ok"})
+        return self._json(404, {"error": "not found"})
+
+    def log_message(self, *args):
+        """Silence the default access log. Everything that matters goes through
+        audit(), which records the verified identity rather than an IP."""
+        return
+
+
+class PublicHandler(http.server.BaseHTTPRequestHandler):
+    """Serves the artefacts that are public by construction, over plain HTTP.
+
+    WHY THIS IS NOT ON THE mTLS LISTENER. A client needs CERT-08 and CRL-01 in
+    order to verify anybody, including us. Requiring a verified connection to
+    collect the things you need in order to verify is a bootstrap that does not
+    close. So these are served unauthenticated.
+
+    WHY PLAIN HTTP IS NOT A MISTAKE. Every file here is signed by a key the
+    client already trusts, carries a serial or a crlNumber, and has dates in
+    it. A forger gains nothing from controlling the channel because they cannot
+    produce a signature. Verifying the transport would be a second and weaker
+    control than verifying the content, and it would tempt a client into
+    skipping the check that actually matters.
+
+    WHAT IT IS NOT SAFE AGAINST is replay: an authentic OLD file, served by
+    anybody. That is not fixable here, at the source, because the file is
+    genuine. It is fixed at the client, which remembers the highest crlNumber
+    it has installed and refuses to go backwards.
+
+    THE DEVIATION, STATED. D-054 says hsm01 carries nothing a general purpose
+    host carries, and this is a second listening socket on the machine that
+    holds the key. A real estate has the CA push its artefacts outward and run
+    no inbound listener at all. This one cannot: adding a shared volume to this
+    service would make compose recreate the container, and recreating it
+    destroys ica-token and everything Chapter 08 and 09 built inside it. The
+    surface is one GET over an allow-list of two filenames, and pub01 exists so
+    that nothing except pub01 ever needs to reach it.
+    """
+
+    server_version = "signd-public/1.0"
+
+    # An allow-list, not a directory. Serving a path the caller supplies is how
+    # a static file server becomes a way to read /var/lib/ca/ica-pin.
+    FILES = {
+        "/crl.pem": (CRL, "application/x-pem-file"),
+        "/ca-bundle.pem": (None, "application/x-pem-file"),  # assembled below
+    }
+
+    def _send(self, code, body, ctype="text/plain"):
+        if isinstance(body, str):
+            body = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path not in self.FILES:
+            return self._send(404, "not found\n")
+        path, ctype = self.FILES[self.path]
+        try:
+            if self.path == "/ca-bundle.pem":
+                # Assembled on every request rather than cached, so it cannot
+                # be stale. Two certificates: the anchor, and the intermediate
+                # a client needs in order to check the intermediate's own CRL.
+                with open(CA_CRT) as fh:
+                    body = fh.read()
+                with open(ICA_CRT) as fh:
+                    body += fh.read()
+            else:
+                with open(path) as fh:
+                    body = fh.read()
+        except OSError as exc:
+            audit("public", self.path, "error", f"detail={exc}")
+            return self._send(503, "not available yet\n")
+        return self._send(200, body, ctype)
+
+    def do_POST(self):
+        return self._send(405, "read only\n")
+
+    do_PUT = do_DELETE = do_POST
+
+    def log_message(self, *args):
+        return
+
+
+def main():
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(SRV_CRT, SRV_KEY)
+    ctx.load_verify_locations(CA_CRT)
+    # Without this line the service would accept anyone and read a name out of
+    # nothing. With it, the handshake fails before do_POST is ever entered.
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+
+    # The public listener runs in a daemon thread beside the mTLS one. It is
+    # started first so that a client polling for the CRL gets an answer even
+    # while the signing side is still coming up.
+    pub = http.server.ThreadingHTTPServer(PUBLIC_LISTEN, PublicHandler)
+    threading.Thread(target=pub.serve_forever, daemon=True).start()
+    print(f"signd public artefacts on {PUBLIC_LISTEN[0]}:{PUBLIC_LISTEN[1]}, "
+          "no authentication, read only", flush=True)
+
+    srv = http.server.ThreadingHTTPServer(LISTEN, Handler)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    print(f"signd listening on {LISTEN[0]}:{LISTEN[1]}, mTLS required", flush=True)
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+```sh
+#!/bin/sh
+# PROC-02, rewritten. Requests a certificate from SVC-03 on hsm01.
+#
+#   request-cert <csr-file> <fqdn> [additional-dns-name ...]
+#
+# Chapter 06's version of this script signed. Chapter 07's asked. Everything
+# that touches the signing key happens on a machine this one cannot log in
+# to, so what is left here is a client: build a request, present a
+# certificate proving who we are, and receive a certificate or a refusal.
+#
+# Note what ca01 does not have, because it is the point of Chapter 07. No
+# token, no PIN, no softhsm group, no signing key of any kind. Root here can
+# read CERT-07 and its key, which is enough to ASK, and POL-02 decides what
+# asking gets you. It is not enough to sign anything.
+#
+# CHAPTER 08 STOPS PRINTING THE CERTIFICATE TO STDOUT, and the reason is the
+# hierarchy rather than taste. There used to be one file to install. There
+# are now two, the leaf and the chain, and a script that prints one of them
+# to a pipe is a script whose caller loses the other one without being told.
+# So this writes both, next to each other, and prints where they went.
+#
+# Install the CHAIN, not the leaf. Every failure this chapter demonstrates
+# comes from someone installing the leaf on its own.
+
+set -eu
+
+SIGND=https://hsm01.lab.simurgh.example:8443/v1/sign
+DIR=/opt/ca-client
+ANCHOR=$DIR/ca.crt              # CERT-08, so we verify the service
+CLIENT_CRT=$DIR/ca01.crt        # CERT-07 followed by CERT-09: our own chain.
+                                # A client presents a chain for the same
+                                # reason a server does, and gets the same
+                                # unhelpful error when it does not.
+CLIENT_KEY=$DIR/ca01.key
+ISSUED=$DIR/issued
+
+# Chapter 12 adds --client, mirroring the flag sign-leaf has had since
+# Chapter 07. It was never reachable from here, so every certificate this
+# API has ever issued has been a server certificate, and the first client
+# one requested through it was refused by PostgreSQL with `sslv3 alert
+# unsupported certificate`.
+USAGE=server
+if [ "${1:-}" = "--client" ]; then
+    USAGE=client
+    shift
+fi
+
+if [ $# -lt 2 ]; then
+    echo "usage: request-cert [--client] <csr-file> <fqdn> [additional-dns-name ...]" >&2
+    exit 2
+fi
+CSR="$1"; FQDN="$2"; shift 2
+
+[ -r "$CSR" ]        || { echo "request-cert: cannot read CSR: $CSR" >&2; exit 1; }
+[ -r "$CLIENT_KEY" ] || { echo "request-cert: cannot read CERT-07's key. Run as 'ca'." >&2; exit 1; }
+
+# Build the JSON body without a JSON library, because this host has no
+# python3 and this script should not be the reason it acquires one. The CSR
+# is PEM, so the only escaping needed is the newlines.
+ALT=""
+for n in "$@"; do ALT="$ALT\"$n\","; done
+ALT=$(printf '%s' "$ALT" | sed 's/,$//')
+BODY=$(printf '{"csr": "%s", "fqdn": "%s", "alt_names": [%s], "usage": "%s"}' \
+  "$(sed ':a;N;$!ba;s/\n/\\n/g' "$CSR")" "$FQDN" "$ALT" "$USAGE")
+
+# --cacert is not optional. Without it this client would hand a request to
+# anything answering on that name, which is Chapter 04 section 7 in reverse:
+# there, the app trusted an impostor database; here, we would trust an
+# impostor authority and take back a certificate it signed.
+RESP=$(curl -sS --fail-with-body \
+  --cacert "$ANCHOR" --cert "$CLIENT_CRT" --key "$CLIENT_KEY" \
+  -H 'Content-Type: application/json' \
+  -X POST "$SIGND" -d "$BODY") || {
+    echo "request-cert: refused or unreachable:" >&2
+    echo "$RESP" >&2
+    exit 1
+  }
+
+# Pull the two PEMs out of the JSON reply. sed rather than a parser, for the
+# same reason as above; the fields are ours and their order is fixed.
+mkdir -p "$ISSUED"
+printf '%s' "$RESP" | sed -n 's/.*"certificate": "\(.*\)", "chain".*/\1/p' \
+  | sed 's/\\n/\n/g' > "$ISSUED/$FQDN.crt"
+printf '%s' "$RESP" | sed -n 's/.*"chain": "\(.*\)", "issued_for".*/\1/p' \
+  | sed 's/\\n/\n/g' > "$ISSUED/ica.crt"
+
+cat "$ISSUED/$FQDN.crt" "$ISSUED/ica.crt" > "$ISSUED/$FQDN.chain.crt"
+chmod 0644 "$ISSUED/$FQDN.crt" "$ISSUED/ica.crt" "$ISSUED/$FQDN.chain.crt"
+
+echo "usage: $USAGE"
+echo "leaf:  $ISSUED/$FQDN.crt"
+echo "chain: $ISSUED/$FQDN.chain.crt   <- install this one"
+openssl x509 -in "$ISSUED/$FQDN.crt" -noout -subject -issuer -dates
+```
 
 ```bash
 sudo docker cp ca01:/opt/ca-client/issued/paymentsvc.chain.crt /tmp/client.crt
@@ -418,21 +896,31 @@ arriving on a machine with a much larger blast radius than `dev01`.
 ### 4.3 Turn verification on
 
 ```bash
-sudo docker exec db01 sh -c '
-  cat >> /etc/postgresql/15/main/postgresql.conf <<CONF
+sudo docker exec -i db01 sh <<'OUTER'
+cat >> /etc/postgresql/15/main/postgresql.conf <<'CONF'
 
 # Chapter 12: db01 verifies its clients.
-ssl_ca_file = "/etc/postgresql/15/main/ca-bundle.pem"
-ssl_crl_file = "/var/lib/postgresql/crl/crl.pem"
+ssl_ca_file = '/etc/postgresql/15/main/ca-bundle.pem'
+ssl_crl_file = '/var/lib/postgresql/crl/crl.pem'
 CONF
-  sed -i "s|\"|'"'"'|g" /etc/postgresql/15/main/postgresql.conf
-  tail -4 /etc/postgresql/15/main/postgresql.conf'
+tail -4 /etc/postgresql/15/main/postgresql.conf
+OUTER
 sudo docker exec db01 pg_ctlcluster 15 main restart
 sudo docker exec db01 su postgres -c "psql -tAc \"SHOW ssl_ca_file\""
 sudo docker exec db01 su postgres -c "psql -tAc \"SHOW ssl_crl_file\""
 ```
 
-Expected: the two paths.
+Expected: the two lines as written, then the two paths.
+
+**Two quoted heredocs and `docker exec -i`, and each part is load-bearing.** PostgreSQL wants
+single quotes around a path, which is awkward inside a `sh -c '...'` and invites repairing the
+quoting afterwards with a global `sed`. A global substitution on a configuration file is a
+disproportionate tool: it edits lines Chapters 04 and 05 put there and any comment that happens
+to contain the character. Quoting the heredoc delimiter stops the shell interpolating anything,
+so the lines land exactly as written and nothing else in the file is touched.
+
+`-i` is there because a heredoc is stdin, and Chapter 02 §4 lost time to a `docker exec` without
+it: the command runs, reads nothing, and reports success.
 
 **Nothing has changed for the application yet.** `pg_hba` still says `scram-sha-256`, so the
 password path still works and the certificate is not being asked for. That is deliberate: the
@@ -1108,7 +1596,7 @@ sudo docker exec -u paymentsvc dev01 sh -c '
 sudo docker cp dev01:/tmp/paymentsvc2.csr /tmp/paymentsvc2.csr
 sudo docker cp /tmp/paymentsvc2.csr ca01:/opt/ca-client/requests/paymentsvc.csr
 sudo docker exec ca01 chown ca:ca /opt/ca-client/requests/paymentsvc.csr
-sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/paymentsvc.csr paymentsvc | head -1
+sudo docker exec -u ca ca01 request-cert --client /opt/ca-client/requests/paymentsvc.csr paymentsvc | head -1
 sudo docker cp ca01:/opt/ca-client/issued/paymentsvc.chain.crt /tmp/client2.crt
 sudo docker cp /tmp/client2.crt dev01:/var/lib/paymentsvc/client.crt
 sudo docker exec dev01 sh -c '

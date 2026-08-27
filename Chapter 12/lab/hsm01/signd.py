@@ -136,9 +136,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             req = json.loads(self.rfile.read(length))
             csr, fqdn = req["csr"], req["fqdn"]
             extra = req.get("alt_names", [])
+            # CHAPTER 12. sign-leaf has had --client since Chapter 07 and this
+            # service never passed it, because the only client certificate in
+            # the estate was issued by hand during the bootstrap in Chapter 07
+            # section 5. The first one requested through the API arrived five
+            # chapters later, stamped serverAuth, and was refused by PostgreSQL
+            # with `sslv3 alert unsupported certificate`: the same error
+            # Chapter 07 section 5.1 spends a page on, and the same cause.
+            #
+            # A capability that exists in a tool and not in the interface to it
+            # is a capability nobody has.
+            usage = req.get("usage", "server")
         except Exception:
             audit(caller, "-", "deny", "detail=malformed json")
             return self._json(400, {"error": "malformed request"})
+
+        if usage not in ("server", "client"):
+            audit(caller, fqdn, "deny", f"detail=unknown usage {usage!r}")
+            return self._json(400, {"error": f"usage must be server or client: {usage}"})
 
         for name in [fqdn] + list(extra):
             if not isinstance(name, str) or not NAME_RE.match(name):
@@ -148,6 +163,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # POL-02. mTLS said who is calling. This says whether they may speak
         # for the name they are asking for, which is a different question and
         # the one Chapter 03 section 7.4 is about.
+        # POL-02 answers which NAMES this caller may request. It has nothing
+        # to say about which USAGE, so a caller permitted to request a name
+        # may request it as either a server or a client certificate. That is
+        # OT-042 and it is not obviously wrong, because the name is what the
+        # certificate asserts; it is unexamined, which is the complaint.
         allowed = load_policy().get(caller, [])
         if fqdn not in allowed:
             audit(caller, fqdn, "deny", "detail=POL-02 does not permit")
@@ -162,9 +182,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 fh.write(csr)
             # sign-leaf owns the token interaction. This process never sees a
             # key, and could not leak one if it were compromised.
-            proc = subprocess.run(
-                ["/usr/local/bin/sign-leaf", path, fqdn] + list(extra),
-                capture_output=True, text=True)
+            argv = ["/usr/local/bin/sign-leaf"]
+            if usage == "client":
+                argv.append("--client")
+            argv += [path, fqdn] + list(extra)
+            proc = subprocess.run(argv, capture_output=True, text=True)
             if proc.returncode != 0:
                 audit(caller, fqdn, "error", f"detail=sign-leaf exit {proc.returncode}")
                 return self._json(500, {"error": "signing failed"})
@@ -179,7 +201,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(ICA_CRT) as fh:
             chain = fh.read()
 
-        audit(caller, fqdn, "allow", f"detail=issued {fqdn}")
+        audit(caller, fqdn, "allow", f"detail=issued {fqdn} usage={usage}")
         return self._json(200, {"certificate": cert, "chain": chain,
                                 "issued_for": fqdn})
 

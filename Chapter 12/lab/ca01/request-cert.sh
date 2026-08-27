@@ -34,8 +34,19 @@ CLIENT_CRT=$DIR/ca01.crt        # CERT-07 followed by CERT-09: our own chain.
 CLIENT_KEY=$DIR/ca01.key
 ISSUED=$DIR/issued
 
+# Chapter 12 adds --client, mirroring the flag sign-leaf has had since
+# Chapter 07. It was never reachable from here, so every certificate this
+# API has ever issued has been a server certificate, and the first client
+# one requested through it was refused by PostgreSQL with `sslv3 alert
+# unsupported certificate`.
+USAGE=server
+if [ "${1:-}" = "--client" ]; then
+    USAGE=client
+    shift
+fi
+
 if [ $# -lt 2 ]; then
-    echo "usage: request-cert <csr-file> <fqdn> [additional-dns-name ...]" >&2
+    echo "usage: request-cert [--client] <csr-file> <fqdn> [additional-dns-name ...]" >&2
     exit 2
 fi
 CSR="$1"; FQDN="$2"; shift 2
@@ -49,8 +60,8 @@ CSR="$1"; FQDN="$2"; shift 2
 ALT=""
 for n in "$@"; do ALT="$ALT\"$n\","; done
 ALT=$(printf '%s' "$ALT" | sed 's/,$//')
-BODY=$(printf '{"csr": "%s", "fqdn": "%s", "alt_names": [%s]}' \
-  "$(sed ':a;N;$!ba;s/\n/\\n/g' "$CSR")" "$FQDN" "$ALT")
+BODY=$(printf '{"csr": "%s", "fqdn": "%s", "alt_names": [%s], "usage": "%s"}' \
+  "$(sed ':a;N;$!ba;s/\n/\\n/g' "$CSR")" "$FQDN" "$ALT" "$USAGE")
 
 # --cacert is not optional. Without it this client would hand a request to
 # anything answering on that name, which is Chapter 04 section 7 in reverse:
@@ -76,6 +87,7 @@ printf '%s' "$RESP" | sed -n 's/.*"chain": "\(.*\)", "issued_for".*/\1/p' \
 cat "$ISSUED/$FQDN.crt" "$ISSUED/ica.crt" > "$ISSUED/$FQDN.chain.crt"
 chmod 0644 "$ISSUED/$FQDN.crt" "$ISSUED/ica.crt" "$ISSUED/$FQDN.chain.crt"
 
+echo "usage: $USAGE"
 echo "leaf:  $ISSUED/$FQDN.crt"
 echo "chain: $ISSUED/$FQDN.chain.crt   <- install this one"
 openssl x509 -in "$ISSUED/$FQDN.crt" -noout -subject -issuer -dates

@@ -14,7 +14,7 @@ awaiting a fix. Chapter 00 §4 sets the rules, and the object prefixes (`HOST-`,
 
 ---
 
-## Open threads (27)
+## Open threads (28)
 
 In the order that decides what gets built next. The top entry is the next chapter's
 pressure.
@@ -26,28 +26,29 @@ pressure.
 | 3 | `OT-040` | Nothing asks | Chapter 11 §5 |
 | 4 | `OT-041` | `db01` cannot report on the dependency it just acquired | Chapter 12 §4.2 |
 | 5 | `OT-037` | The verifiers do not agree with each other | Chapter 09 §9 |
-| 6 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
-| 7 | `OT-004` | Root reads everything | Chapter 01 §8 |
-| 8 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
-| 9 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
-| 10 | `OT-039` | Nothing watches the deadline | Chapter 10 §9 |
-| 11 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
-| 12 | `OT-035` | The intermediate cannot be revoked in useful time | Chapter 09 §5.4 |
-| 13 | `OT-027` | One person can sign anything | Chapter 06 §12 |
-| 14 | `OT-038` | The publication point is a single point of availability failure | Chapter 10 §9 |
-| 15 | `OT-036` | Nothing verifies that a security control is actually running | Chapter 09 §8 |
-| 16 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
-| 17 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
-| 18 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
-| 19 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
-| 20 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
-| 21 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
-| 22 | `OT-007` | Nothing expires | Chapter 01 §11 |
-| 23 | `OT-015` | The store audits itself | Chapter 03 §11 |
-| 24 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
-| 25 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
-| 26 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
-| 27 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
+| 6 | `OT-042` | The issuance policy governs names, not usages | Chapter 12 §3.1 |
+| 7 | `OT-011` | `SVC-02` is a single point of total compromise, in plaintext | Chapter 02 §10 |
+| 8 | `OT-004` | Root reads everything | Chapter 01 §8 |
+| 9 | `OT-016` | `POL-01` is a static allow-list, hand-edited on the host | Chapter 03 §11 |
+| 10 | `OT-023` | Nothing decides who may be issued a certificate for which name | Chapter 05 §12 |
+| 11 | `OT-039` | Nothing watches the deadline | Chapter 10 §9 |
+| 12 | `OT-018` | `CERT-01` expires in a year and nothing knows | Chapter 04 §10 |
+| 13 | `OT-035` | The intermediate cannot be revoked in useful time | Chapter 09 §5.4 |
+| 14 | `OT-027` | One person can sign anything | Chapter 06 §12 |
+| 15 | `OT-038` | The publication point is a single point of availability failure | Chapter 10 §9 |
+| 16 | `OT-036` | Nothing verifies that a security control is actually running | Chapter 09 §8 |
+| 17 | `OT-009` | Nothing restarts after a reboot | Chapter 01 §14 |
+| 18 | `OT-029` | The root is offline by convention, not by control | Chapter 08 §5 |
+| 19 | `OT-026` | The token is a library, and root takes the whole box | Chapter 06 §12 |
+| 20 | `OT-025` | A Unix group and a shared PIN guard the signing key | Chapter 06 §12 |
+| 21 | `OT-024` | `NET-01` is one flat network | Chapter 06 §12 |
+| 22 | `OT-014` | Peer credentials do not cross a machine boundary | Chapter 03 §9 |
+| 23 | `OT-007` | Nothing expires | Chapter 01 §11 |
+| 24 | `OT-015` | The store audits itself | Chapter 03 §11 |
+| 25 | `OT-031` | Three anchors by hand, and now the chains too | Chapter 08 §9.1 |
+| 26 | `OT-012` | `APP-01` cannot start without `SVC-02`, and nothing manages that | Chapter 02 §5.4 |
+| 27 | `OT-008` | The application can still write `SEC-01` into its own log | Chapter 01 §3.4 |
+| 28 | `OT-030` | Nothing distributes `CERT-09` | Chapter 08 §9.4 |
 
 ---
 
