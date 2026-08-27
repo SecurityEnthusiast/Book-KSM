@@ -20,8 +20,15 @@ database:
   # CERT-09, for the reason every other holder here presents a chain: the
   # server can build the path itself today, and that depends on somebody
   # else's configuration staying right.
-  sslcert: /opt/paymentsvc/client.crt
-  sslkey: /opt/paymentsvc/client.key
+  #
+  # NOT in /opt/paymentsvc, and Chapter 10 learned why the hard way. That
+  # directory is root-owned so that APP-01 cannot rewrite its own
+  # configuration, which has been true since Chapter 01. Creating a key
+  # there, and replacing it during an incident, both need write permission
+  # on the DIRECTORY and not merely on the file. So the identity lives
+  # where ACC-03 owns the directory, exactly as the CRL does.
+  sslcert: /var/lib/paymentsvc/client.crt
+  sslkey: /var/lib/paymentsvc/client.key
   # Chapter 05: the anchor is the authority, not the server.
   #
   # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01

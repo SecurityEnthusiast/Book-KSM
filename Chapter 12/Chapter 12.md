@@ -217,22 +217,41 @@ certificates we understand, means Stage 4 is a change of mechanism rather than a
 ## 3. Give the application an identity
 
 The key is generated where it will be used and never travels. `D-036` and `D-044`, unchanged
-since Chapter 05:
+since Chapter 05.
+
+It needs somewhere to live, and it is not beside the configuration:
+
+```bash
+sudo docker exec dev01 sh -c '
+  mkdir -p /var/lib/paymentsvc
+  chown paymentsvc:paymentsvc /var/lib/paymentsvc
+  chmod 0700 /var/lib/paymentsvc
+  ls -ld /opt/paymentsvc /var/lib/paymentsvc'
+```
+
+Expected: `/opt/paymentsvc` owned by `root`, and `/var/lib/paymentsvc` owned by `paymentsvc` with
+mode `0700`.
+
+**Chapter 10 learned this the hard way and it applies again.** `/opt/paymentsvc` is root-owned so
+that `APP-01` cannot rewrite its own configuration, which has been true since Chapter 01.
+Creating a key there needs write permission on the **directory**, not merely on a file, and so
+does replacing it during an incident, which `§7` does. An unprivileged workload that owns an
+identity needs a directory of its own, and the reflex fix of widening `/opt/paymentsvc` would
+undo a control put there eleven chapters ago.
 
 ```bash
 sudo docker exec -u paymentsvc dev01 sh -c '
-  openssl ecparam -name prime256v1 -genkey -noout -out /opt/paymentsvc/client.key
-  chmod 0400 /opt/paymentsvc/client.key
-  openssl req -new -key /opt/paymentsvc/client.key \
+  openssl ecparam -name prime256v1 -genkey -noout -out /var/lib/paymentsvc/client.key
+  chmod 0400 /var/lib/paymentsvc/client.key
+  openssl req -new -key /var/lib/paymentsvc/client.key \
       -out /tmp/paymentsvc.csr -subj "/CN=paymentsvc"
-  ls -l /opt/paymentsvc/client.key'
+  ls -l /var/lib/paymentsvc/client.key'
 ```
 
 Expected: `-r--------  1 paymentsvc paymentsvc ... client.key`.
 
-**`/opt/paymentsvc` is root-owned**, and `ACC-03` can still write `client.key` into it because
-Chapter 01 gave that account ownership of its own files there. The CSR goes to `/tmp` because it
-is public and about to travel.
+The CSR goes to `/tmp` because it is public and about to travel.
+
 
 The authority will not issue this yet. `POL-02` decides who may ask for which name, and nobody
 has ever asked for `paymentsvc`:
@@ -286,12 +305,12 @@ Install it:
 
 ```bash
 sudo docker cp ca01:/opt/ca-client/issued/paymentsvc.chain.crt /tmp/client.crt
-sudo docker cp /tmp/client.crt dev01:/opt/paymentsvc/client.crt
+sudo docker cp /tmp/client.crt dev01:/var/lib/paymentsvc/client.crt
 sudo docker exec dev01 sh -c '
-  chown paymentsvc:paymentsvc /opt/paymentsvc/client.crt
-  chmod 0444 /opt/paymentsvc/client.crt
-  openssl x509 -in /opt/paymentsvc/client.crt -noout -subject -ext extendedKeyUsage
-  grep -c "BEGIN CERTIFICATE" /opt/paymentsvc/client.crt'
+  chown paymentsvc:paymentsvc /var/lib/paymentsvc/client.crt
+  chmod 0444 /var/lib/paymentsvc/client.crt
+  openssl x509 -in /var/lib/paymentsvc/client.crt -noout -subject -ext extendedKeyUsage
+  grep -c "BEGIN CERTIFICATE" /var/lib/paymentsvc/client.crt'
 ```
 
 Expected: `subject=CN = paymentsvc`, `TLS Web Client Authentication`, and `2`.
@@ -553,8 +572,15 @@ database:
   # CERT-09, for the reason every other holder here presents a chain: the
   # server can build the path itself today, and that depends on somebody
   # else's configuration staying right.
-  sslcert: /opt/paymentsvc/client.crt
-  sslkey: /opt/paymentsvc/client.key
+  #
+  # NOT in /opt/paymentsvc, and Chapter 10 learned why the hard way. That
+  # directory is root-owned so that APP-01 cannot rewrite its own
+  # configuration, which has been true since Chapter 01. Creating a key
+  # there, and replacing it during an incident, both need write permission
+  # on the DIRECTORY and not merely on the file. So the identity lives
+  # where ACC-03 owns the directory, exactly as the CRL does.
+  sslcert: /var/lib/paymentsvc/client.crt
+  sslkey: /var/lib/paymentsvc/client.key
   # Chapter 05: the anchor is the authority, not the server.
   #
   # This was /opt/paymentsvc/db01.crt, a copy of the certificate db01
@@ -612,6 +638,7 @@ server:
 crl:
   warn_days: 2
 ```
+
 
 ```python
 #!/usr/bin/env python3
@@ -968,7 +995,7 @@ curl -s http://127.0.0.1:8080/credinfo; echo
 ```
 
 Expected: the payment record, and `"db_user": "paymentsvc"`, `"auth_method": "certificate"`,
-`"client_cert": "/opt/paymentsvc/client.crt"`.
+`"client_cert": "/var/lib/paymentsvc/client.crt"`.
 
 Confirm from the database's side, which is the view that cannot be faked by the client:
 
@@ -987,16 +1014,16 @@ Chapter 03; this is the first time `SVC-01` can.
 ### 6.1 The file mode, which libpq checks and we do not
 
 ```bash
-sudo docker exec dev01 sh -c 'chmod 0644 /opt/paymentsvc/client.key'
+sudo docker exec dev01 sh -c 'chmod 0644 /var/lib/paymentsvc/client.key'
 sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
 sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 | tail -3
-sudo docker exec dev01 sh -c 'chmod 0400 /opt/paymentsvc/client.key'
+sudo docker exec dev01 sh -c 'chmod 0400 /var/lib/paymentsvc/client.key'
 ```
 
 Expected, ending in:
 
 ```
-private key file "/opt/paymentsvc/client.key" has group or world access; file must have
+private key file "/var/lib/paymentsvc/client.key" has group or world access; file must have
 permissions u=rw (0600) or less if owned by the current user, or permissions u=rw,g=r (0640)
 or less if owned by root
 ```
@@ -1025,7 +1052,7 @@ The estate has been able to revoke certificates since Chapter 09 and it has neve
 anything the business depends on. It does now.
 
 ```bash
-sudo docker cp dev01:/opt/paymentsvc/client.crt /tmp/appcert.crt
+sudo docker cp dev01:/var/lib/paymentsvc/client.crt /tmp/appcert.crt
 sudo docker cp /tmp/appcert.crt hsm01:/var/lib/ca/requests/appcert.crt
 sudo docker exec hsm01 chown signd:signd /var/lib/ca/requests/appcert.crt
 sudo docker exec -u signd hsm01 sh -c '
@@ -1074,21 +1101,21 @@ Issue a replacement, which is what an incident actually looks like:
 
 ```bash
 sudo docker exec -u paymentsvc dev01 sh -c '
-  openssl ecparam -name prime256v1 -genkey -noout -out /opt/paymentsvc/client.key.new
-  chmod 0400 /opt/paymentsvc/client.key.new
-  openssl req -new -key /opt/paymentsvc/client.key.new \
+  openssl ecparam -name prime256v1 -genkey -noout -out /var/lib/paymentsvc/client.key.new
+  chmod 0400 /var/lib/paymentsvc/client.key.new
+  openssl req -new -key /var/lib/paymentsvc/client.key.new \
       -out /tmp/paymentsvc2.csr -subj "/CN=paymentsvc"'
 sudo docker cp dev01:/tmp/paymentsvc2.csr /tmp/paymentsvc2.csr
 sudo docker cp /tmp/paymentsvc2.csr ca01:/opt/ca-client/requests/paymentsvc.csr
 sudo docker exec ca01 chown ca:ca /opt/ca-client/requests/paymentsvc.csr
 sudo docker exec -u ca ca01 request-cert /opt/ca-client/requests/paymentsvc.csr paymentsvc | head -1
 sudo docker cp ca01:/opt/ca-client/issued/paymentsvc.chain.crt /tmp/client2.crt
-sudo docker cp /tmp/client2.crt dev01:/opt/paymentsvc/client.crt
+sudo docker cp /tmp/client2.crt dev01:/var/lib/paymentsvc/client.crt
 sudo docker exec dev01 sh -c '
-  mv /opt/paymentsvc/client.key.new /opt/paymentsvc/client.key
-  chown paymentsvc:paymentsvc /opt/paymentsvc/client.crt /opt/paymentsvc/client.key
-  chmod 0444 /opt/paymentsvc/client.crt
-  chmod 0400 /opt/paymentsvc/client.key'
+  mv /var/lib/paymentsvc/client.key.new /var/lib/paymentsvc/client.key
+  chown paymentsvc:paymentsvc /var/lib/paymentsvc/client.crt /var/lib/paymentsvc/client.key
+  chmod 0444 /var/lib/paymentsvc/client.crt
+  chmod 0400 /var/lib/paymentsvc/client.key'
 sudo docker exec -d -u paymentsvc dev01 \
     sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
 sleep 2
