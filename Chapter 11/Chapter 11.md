@@ -184,7 +184,7 @@ Wait it out:
 ```bash
 sleep 100
 sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
-sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 | tail -4
+sudo docker exec -u paymentsvc dev01 python3 /opt/paymentsvc/paymentsvc.py 2>&1 || tail -4
 ```
 
 Expected, ending in:
