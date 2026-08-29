@@ -31,9 +31,13 @@ RUN useradd --system --home-dir /opt/ca-client --shell /usr/sbin/nologin ca
 #
 # 0755, and only the key is restricted. Everything else here is a
 # certificate, and a certificate is public by construction.
-RUN mkdir -p /opt/ca-client/requests \
+# break-glass/ is 0700: the second operator credential is not something a
+# stray process on this host should be able to enumerate, let alone read.
+# Chapter 14 section 6.
+RUN mkdir -p /opt/ca-client/requests /opt/ca-client/break-glass \
  && chown -R ca:ca /opt/ca-client \
- && chmod 0755 /opt/ca-client /opt/ca-client/requests
+ && chmod 0755 /opt/ca-client /opt/ca-client/requests \
+ && chmod 0700 /opt/ca-client/break-glass
 
 COPY request-cert.sh /usr/local/bin/request-cert
 COPY entrypoint.sh   /usr/local/bin/entrypoint.sh

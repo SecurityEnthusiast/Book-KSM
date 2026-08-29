@@ -2,5 +2,8 @@
   "ca01.lab.simurgh.example": [
     "db01.lab.simurgh.example",
     "paymentsvc"
+  ],
+  "ca01-bg.lab.simurgh.example": [
+    "ca01.lab.simurgh.example"
   ]
 }

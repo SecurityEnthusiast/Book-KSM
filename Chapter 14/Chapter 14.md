@@ -1451,10 +1451,16 @@ once. That is the difference between this service and PostgreSQL: it notices a n
 next connection, with no reload and no restart. The cost is one `stat` per connection and a
 context rebuilt only when the file has actually changed. `D-093`.
 
-Deploy and restart:
+**Deploy everything this section needs, in one step.** Three files change on two machines, and
+the rest of `§6` assumes all three are in place. `signd` re-reads `policy.json` on every request,
+so only `signd` itself needs the restart:
 
 ```bash
-sudo docker cp hsm01/signd.py hsm01:/usr/local/bin/signd
+sudo docker cp hsm01/signd.py    hsm01:/usr/local/bin/signd
+sudo docker cp hsm01/policy.json hsm01:/etc/signd/policy.json
+sudo docker cp ca01/request-cert.sh ca01:/usr/local/bin/request-cert
+sudo docker exec hsm01 chown signd:signd /etc/signd/policy.json
+sudo docker exec ca01  chmod 0755 /usr/local/bin/request-cert
 sudo docker exec hsm01 chmod 0755 /usr/local/bin/signd
 sudo docker exec -u signd hsm01 stop-signd
 sudo docker exec -d -u signd hsm01 \
@@ -1468,8 +1474,86 @@ sudo docker exec -u ca ca01 request-cert --client \
 Expected: `signd listening on 0.0.0.0:8443, mTLS required, revocation checked per connection`,
 and a successful issuance. `ca01`'s own certificate is not revoked, so nothing changes for it.
 
-**Now prove it refuses one that is.** `ca01` still holds the credential Chapter 09 §1 stole and
-never revoked:
+**Now check what actually landed, and check the contents rather than the copy.** `docker cp`
+reports success for the wrong file just as cheerfully as for the right one, and every file above
+exists in the previous chapter's `lab/` too. Three questions, one per file:
+
+```bash
+sudo docker exec -u signd hsm01 python3 -c \
+  'import json;print("policy callers:", len(json.load(open("/etc/signd/policy.json"))))'
+sudo docker exec -u ca ca01 sh -c \
+  'grep -c -- --break-glass /usr/local/bin/request-cert'
+sudo docker exec -u signd hsm01 sh -c \
+  'grep -c VERIFY_CRL_CHECK_LEAF /usr/local/bin/signd'
+```
+
+Expected: `policy callers: 2`, then `2`, then a non-zero count. **A `1` on the first line or a
+`0` on the second means you copied this chapter's `signd.py` and the previous chapter's other
+two files**, which is the shape this failure takes and is invisible from `docker cp`'s output.
+
+If any of the three is wrong, re-run the copy from `chapters/Chapter 14/lab` and check again
+before going on.
+
+**Before proving it refuses one, give the operator a second way in.** `SVC-03` now checks
+revocation on every connection, and `ca01` holds the only credential it accepts. Revoke that and
+the operator cannot ask for a replacement, because asking is the thing that just stopped working.
+
+`ca01` **cannot ask `signd` for its own certificate.** `POL-02` lets it request
+`db01.lab.simurgh.example` and `paymentsvc`, and nothing else. That is why the recovery below
+could not simply be "ask again": the operator has never been able to issue itself.
+
+That constraint decides the design. The break-glass credential is a **separate identity**,
+`CERT-12` for `ca01-bg.lab.simurgh.example`, and `POL-02` grants it exactly one power:
+
+```bash
+sudo docker exec -u signd hsm01 cat /etc/signd/policy.json
+```
+
+Expected: two callers. `ca01-bg.lab.simurgh.example` may request `ca01.lab.simurgh.example` and
+nothing else: not `db01`, not `paymentsvc`, not itself. `signd` re-reads the file on every
+request, so no restart.
+
+**The grant `POL-02` must never make is `ca01` to itself.** If the operator could renew its own
+certificate, revoking it would stop meaning anything, because a compromised `ca01` would simply
+issue itself a fresh one. Revoking an operator has to be able to remove that operator. A second
+identity with one narrow power keeps that true, and can be revoked on its own when you want the
+lockout to be real.
+
+The credential itself is signed at the token, by hand, because nothing in the estate is allowed
+to mint it:
+
+```bash
+sudo docker exec -u ca ca01 sh -c '
+  mkdir -p /opt/ca-client/break-glass
+  chmod 0700 /opt/ca-client/break-glass
+  openssl ecparam -name prime256v1 -genkey -noout -out /opt/ca-client/break-glass/ca01-bg.key
+  chmod 0400 /opt/ca-client/break-glass/ca01-bg.key
+  openssl req -new -key /opt/ca-client/break-glass/ca01-bg.key \
+      -out /opt/ca-client/requests/ca01-bg.csr -subj "/CN=ca01-bg.lab.simurgh.example"'
+sudo docker cp ca01:/opt/ca-client/requests/ca01-bg.csr /tmp/ca01-bg.csr
+sudo docker cp /tmp/ca01-bg.csr hsm01:/var/lib/ca/requests/ca01-bg.csr
+sudo docker exec hsm01 chown signd:signd /var/lib/ca/requests/ca01-bg.csr
+sudo docker exec -u signd hsm01 \
+    sign-leaf --client /var/lib/ca/requests/ca01-bg.csr ca01-bg.lab.simurgh.example | head -2
+sudo docker cp hsm01:/var/lib/ca/issued/ca01-bg.lab.simurgh.example.chain.crt /tmp/ca01-bg.crt
+sudo docker cp /tmp/ca01-bg.crt ca01:/opt/ca-client/break-glass/ca01-bg.crt
+sudo docker exec ca01 sh -c '
+  chown ca:ca /opt/ca-client/break-glass/ca01-bg.crt
+  chmod 0400 /opt/ca-client/break-glass/ca01-bg.crt'
+sudo docker exec -u ca ca01 sh -c '
+  openssl x509 -in /opt/ca-client/ca01.crt -noout -subject
+  openssl x509 -in /opt/ca-client/break-glass/ca01-bg.crt -noout -subject'
+```
+
+Expected: `issued:`, then two **different subjects**, `CN=ca01.lab.simurgh.example` and
+`CN=ca01-bg.lab.simurgh.example`.
+
+**Provisioning break-glass needs a human at the token, and that is correct.** Issuing it is a
+planned act, done once, by someone who could already sign anything. Recovery is the
+part that must not need that, and now it does not.
+
+**Now prove it refuses one that is revoked.** `ca01` still holds the credential Chapter 09 §1
+stole and never revoked:
 
 ```bash
 sudo docker exec -u ca ca01 openssl x509 -in /opt/ca-client/ca01.crt -noout -serial
@@ -1488,39 +1572,53 @@ sudo docker exec -u ca ca01 request-cert --client \
 Expected:
 
 ```
+curl: (56) OpenSSL SSL_read: OpenSSL/3.0.20: error:0A000414:SSL routines::sslv3 alert certificate revoked, errno 0
 request-cert: refused or unreachable:
-curl: (35) ... alert certificate revoked
 ```
+
+The OpenSSL version will be whatever your image ships.
 
 **`signd` refused its own operator, on the next connection, with no restart.** The `stat` on
 `crl.pem` saw a newer file, the store was rebuilt, and the caller was checked against it. That is
 `OT-037` closed, and it closed on the machine that had the least excuse.
 
-Give `ca01` a working credential back, by hand, exactly as Chapter 07 §5 did, because `ca01`
-cannot now ask for one:
+**Read the exit code, because it is not the one you would guess.** `curl: (56)` is *failure
+receiving network data*. The code for a refused handshake is `35`, and this is not that. The
+handshake **succeeded**: `signd` completed it, then decided against the caller, and the decision
+arrived as an alert while `curl` was reading the reply. That is why the curl line comes out
+**before** `request-cert`'s own message, and why the response body is empty. `§7` is that
+observation on purpose, with a client that can be told not to read.
+
+**Break the glass.** No token, nobody on `hsm01`, no hand-signing:
 
 ```bash
 sudo docker exec -u ca ca01 sh -c '
   openssl req -new -key /opt/ca-client/ca01.key \
       -out /opt/ca-client/requests/ca01.csr -subj "/CN=ca01.lab.simurgh.example"'
-sudo docker cp ca01:/opt/ca-client/requests/ca01.csr /tmp/ca01.csr
-sudo docker cp /tmp/ca01.csr hsm01:/var/lib/ca/requests/ca01.csr
-sudo docker exec hsm01 chown signd:signd /var/lib/ca/requests/ca01.csr
-sudo docker exec -u signd hsm01 \
-    sign-leaf --client /var/lib/ca/requests/ca01.csr ca01.lab.simurgh.example | head -2
-sudo docker cp hsm01:/var/lib/ca/issued/ca01.lab.simurgh.example.chain.crt /tmp/ca01new.crt
-sudo docker cp /tmp/ca01new.crt ca01:/opt/ca-client/ca01.crt
-sudo docker exec ca01 chown ca:ca /opt/ca-client/ca01.crt
+sudo docker exec -u ca ca01 request-cert --client --break-glass \
+    /opt/ca-client/requests/ca01.csr ca01.lab.simurgh.example | head -2
+sudo docker exec -u ca ca01 sh -c '
+  cp /opt/ca-client/issued/ca01.lab.simurgh.example.chain.crt /opt/ca-client/ca01.crt'
 sudo docker exec -u ca ca01 request-cert --client \
     /opt/ca-client/requests/paymentsvc.csr paymentsvc | head -1
 ```
 
-Expected: an issued certificate.
+Expected: the warning on stderr, `issued:`, and then a normal issuance using the **primary**
+credential again.
 
-**That is the bootstrap problem arriving from a new direction.** `signd` can now refuse the only
-client that can ask it for anything, and recovering needs a human on `hsm01`. A verifier strict
-enough to lock out its own operator is a verifier that needs a documented way back in, and
-`PROC-13` is where that lives.
+**The operator recovered without anyone touching the key.** The revoked certificate is still
+revoked, the register is honest, and the estate did not have to weaken a check to get back in.
+
+**What this does not buy, and it matters.** `CERT-12`'s key sits on `ca01` beside the primary at
+`0400` in a `0700` directory. Anyone who compromises `ca01` gets both. This closes the
+**lockout**, an availability problem created by strictness. It does nothing about **compromise**,
+and a real break-glass credential lives somewhere the host cannot reach. That is the same gap
+`AR-004` records about calling a stopped container offline.
+
+**A second credential is also a second thing to forget.** It is rarely used, therefore rarely
+checked, and it expires on the same ninety day clock as everything else. `OT-018` already says
+nothing tracks expiry, and this chapter just gave that thread a credential whose expiry nobody
+would notice until the day it was needed. `PROC-13` records the drill.
 
 ---
 
@@ -1529,32 +1627,114 @@ enough to lock out its own operator is a verifier that needs a documented way ba
 The obvious way to check whether the estate is enforcing anything is to connect and see whether
 it works. Under TLS 1.3 that does not measure what you think.
 
+`§6` proved that `SVC-03` refuses a revoked caller, using `request-cert`, which uses `curl`. What
+that does not show is **where** the refusal happens, or what a client that does not read would
+have concluded. Both need a revoked certificate and a client you control.
+
+Issue a second certificate for the same workload, through the ordinary path:
+
 ```bash
-sudo docker exec dev01 python3 - <<'PY'
+sudo docker exec -u paymentsvc dev01 sh -c '
+  openssl ecparam -name prime256v1 -genkey -noout -out /tmp/scratch.key
+  openssl req -new -key /tmp/scratch.key -out /tmp/scratch.csr -subj "/CN=paymentsvc"'
+sudo docker cp dev01:/tmp/scratch.csr /tmp/scratch.csr
+sudo docker cp /tmp/scratch.csr ca01:/opt/ca-client/requests/scratch.csr
+sudo docker exec ca01 chown ca:ca /opt/ca-client/requests/scratch.csr
+sudo docker exec -u ca ca01 request-cert --client \
+    /opt/ca-client/requests/scratch.csr paymentsvc | head -2
+sudo docker cp ca01:/opt/ca-client/issued/paymentsvc.chain.crt /tmp/scratch.crt
+sudo docker cp /tmp/scratch.crt dev01:/tmp/scratch.crt
+```
+
+Expected: `issued:` and a path. `POL-02` permits `ca01` to ask for `paymentsvc`, so this is a
+legitimate request and a legitimate certificate.
+
+Now revoke it, and nothing else:
+
+```bash
+sudo docker cp /tmp/scratch.crt hsm01:/var/lib/ca/requests/scratch.crt
+sudo docker exec hsm01 chown signd:signd /var/lib/ca/requests/scratch.crt
+sudo docker exec -u signd hsm01 sh -c '
+  awk "/BEGIN/{n++} n==1" /var/lib/ca/requests/scratch.crt > /var/lib/ca/requests/scratch-leaf.crt'
+sudo docker exec -u signd hsm01 \
+    revoke-cert /var/lib/ca/requests/scratch-leaf.crt superseded | tail -2
+```
+
+**The application is unaffected, and that is worth one sentence.** Revocation names a serial,
+not a name. `APP-01` holds a different certificate with the same `CN=paymentsvc`, and it keeps
+working throughout this section. A reader who expected revoking "the paymentsvc certificate" to
+break the application has just learned what the register actually indexes.
+
+No reload, no restart, no `pull-artifacts`. `SVC-03` reads its own list on the next connection,
+which is what `§6` built. Connect with the revoked certificate and **do not read**:
+
+```bash
+sudo docker exec -i dev01 python3 - <<'PY'
 import socket, ssl
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-ctx.load_cert_chain("/var/lib/paymentsvc/client.crt", "/var/lib/paymentsvc/client.key")
+ctx.load_cert_chain("/tmp/scratch.crt", "/tmp/scratch.key")
 ctx.load_verify_locations("/opt/paymentsvc/ca-bundle.pem")
-raw = socket.create_connection(("db01.lab.simurgh.example", 5432), timeout=5)
-print("  TCP connected")
+raw = socket.create_connection(("hsm01.lab.simurgh.example", 8443), timeout=5)
+tls = ctx.wrap_socket(raw, server_hostname="hsm01.lab.simurgh.example")
+print("  handshake returned:", tls.version(), "-> looks ACCEPTED")
 PY
 ```
 
-Expected: `TCP connected`. That proves the network works and nothing else, which is the point.
+Expected:
 
-The same shape appears in TLS. When `signd` refuses a caller, the caller's handshake has
-**already completed**: under TLS 1.3 the client finishes before the server has validated the
-client certificate, and the refusal arrives afterwards as an alert. A client that connects and
-never reads sees success.
+```
+  handshake returned: TLSv1.3 -> looks ACCEPTED
+```
 
-That is why `request-cert` in `§6` reported the refusal at all: `curl` reads a response. A
-hand-written client that only writes would have logged a successful connection to a service that
-had already dropped it.
+**The handshake completed against a server that had already decided to refuse.** Under TLS 1.3
+the client finishes its side before the server has finished validating the client certificate, so
+`wrap_socket` returns while the refusal is still in flight.
 
-**This estate has met that shape three times now.** Chapter 04's impostor produced `EOF detected`
-because the handshake completed and the protocol did not. Chapter 09 §1 used the same string to
-prove a certificate had been **accepted**. And here a handshake completes against a server that
-has already decided to refuse.
+The same connection, with one `recv` added:
+
+```bash
+sudo docker exec -i dev01 python3 - <<'PY'
+import socket, ssl
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.load_cert_chain("/tmp/scratch.crt", "/tmp/scratch.key")
+ctx.load_verify_locations("/opt/paymentsvc/ca-bundle.pem")
+raw = socket.create_connection(("hsm01.lab.simurgh.example", 8443), timeout=5)
+tls = ctx.wrap_socket(raw, server_hostname="hsm01.lab.simurgh.example")
+print("  handshake returned:", tls.version())
+try:
+    tls.sendall(b"GET /healthz HTTP/1.0\r\n\r\n")
+    print("  read:", tls.recv(64)[:60])
+except ssl.SSLError as exc:
+    print("  read raised:", type(exc).__name__, exc)
+PY
+```
+
+Expected:
+
+```
+  handshake returned: TLSv1.3
+  read raised: SSLError [SSL: SSLV3_ALERT_CERTIFICATE_REVOKED] ssl/tls alert certificate revoked (_ssl.c:<line>)
+```
+
+The `_ssl.c:<line>` number depends on your Python build and means nothing.
+
+**Same client, same server, same certificate, one line apart.** The first script reports a
+working connection to a service that had already dropped it. Alert 44 is `certificate_revoked`,
+so the refusal is in the TLS layer and no request was ever read. That completes what `§6`
+started: `SVC-03` refuses **before** `POL-02` is consulted, and it did so with no reload.
+
+`openssl s_client` will not show you this asymmetry, and the reason is worth knowing: it always
+reads, so it reports the alert whether or not you send anything. A tool that cannot demonstrate
+the bug is not evidence the bug is absent.
+
+That is also why `request-cert` in `§6` reported its refusal at all, and why it did so with
+`curl: (56)` rather than `35`. `curl` reads a response, so it met the alert on the read, not on
+the connect. A hand-written client that only writes would have logged success.
+
+**This estate has now met that shape three times.** Chapter 04's impostor produced `EOF detected`
+because the handshake completed and the protocol did not. Chapter 09 `§1` used the same string to
+prove a certificate had been **accepted**. Here a handshake completes against a server that has
+already refused.
 
 **The rule, and it is not about TLS:** a check that only establishes a connection has measured
 connectivity. To know whether the other end accepted you, **read**.
@@ -1582,15 +1762,18 @@ because `pg_terminate_backend` disconnects innocent clients too. `PROC-13`.
 **`db01` still cannot report on its own freshness.** It fetches, and now loads, and nothing says
 how much life the installed list has. `OT-041`, narrowed rather than closed.
 
-**And `signd` can lock out its own operator.** `§6` did exactly that, and the way back was a
-human on `hsm01`. Strictness has a bootstrap cost and this estate now has one.
+**The break-glass credential is a second thing to lose.** `§6` closed the lockout with `CERT-12`,
+so recovery no longer needs a human on `hsm01`. It bought that with a credential that is rarely
+used, therefore rarely checked, kept on the same host as the primary, and expiring on the same
+clock nothing watches (`OT-018`). Strictness did not stop costing; the cost moved.
 
 ---
 
-## 9. The threads, before Kubernetes
+## 9. Re-measuring what we call open
 
-Chapter 15 changes substrate. That is the moment to be honest about what is open, because a
-problem that exists on the way in will be blamed on the platform.
+Every chapter has ended by naming what is still wrong, and the list has only ever grown. Nobody
+has gone back to check whether the old entries are still true. This one does, and a quarter of
+them were not.
 
 **Closed here.**
 
@@ -1604,17 +1787,17 @@ problem that exists on the way in will be blamed on the platform.
 The last two close on a re-measurement rather than on work done in this chapter, and `§9.1` is
 about how they were found.
 
-**Deliberately left open, because Kubernetes is the answer and building one here means building
-what Stage 4 deletes.**
+**Left open on purpose**, because the answer to each is a scheduler, a probe or a network
+policy, and writing a worse version of one by hand teaches nothing:
 
-| Thread | What answers it there |
+| Thread | What it needs |
 |---|---|
-| `OT-009` | restart policies and the control loop |
-| `OT-040` | liveness and readiness probes, which are exactly "something asks" |
-| `OT-024` | `NetworkPolicy` |
+| `OT-009` | something that restarts what stops |
+| `OT-040` | something that asks `/healthz` whether it is well |
+| `OT-024` | something that segments a flat network |
 
-**Converted to accepted risks**, because they cannot close in a lab made of containers and
-leaving them `OPEN` overstates the damage on the way into Stage 4:
+**Converted to accepted risks**, because they cannot close in a lab made of containers, and an
+entry nobody can act on makes the whole list easier to ignore:
 
 | Was | Becomes | The honest statement |
 |---|---|---|
@@ -1644,10 +1827,9 @@ reason and no expiry recorded, and you can read that off `policy.json` in five l
 PIN. Confirming a thread is not wasted work. It is the difference between a queue you believe and
 a queue you have checked.
 
-**Four failed the question**, and one of the four had already been promised to Kubernetes. Two of
-the four turned out not to be threads at all.
+**Four failed the question.** Two of them turned out not to be threads at all.
 
-**`OT-012`: the dependency Stage 4 was going to manage does not exist.** The thread says
+**`OT-012`: the dependency does not exist.** The thread says
 `APP-01` cannot start without `SVC-02`, demonstrated in Chapter 02 by stopping the store and
 watching the application die with `Connection refused`. Try it now:
 
@@ -1660,10 +1842,9 @@ certificate and `paymentsvc.py` stopped contacting the store; it has not opened 
 two chapters. Stop `SVC-02` and the application starts, connects and serves.
 
 An orchestrator manages a dependency. It cannot manage one that was deleted. Had that row stayed
-in the table above, Chapter 15 would have gone looking for a payoff that could not arrive, and
-Kubernetes would have got credit for solving a problem this estate no longer had, which is the
-precise way platforms acquire reputations they have not earned. The general form, *nothing
-sequences or restarts anything*, is `OT-009`, and that one is genuinely Stage 4's.
+in the table above, the next thing built would have got credit for solving a problem this estate
+no longer had, which is the precise way tools acquire reputations they have not earned. The
+general form, *nothing sequences or restarts anything*, is `OT-009`, and that one is real.
 
 **`OT-008`: half its reasoning was false.** It stayed open for two reasons: a `DEBUG` line in
 `/var/log/paymentsvc.log` still holding the retired `SEC-01`, and "the credential is still a live
@@ -1759,9 +1940,9 @@ being in the list anybody reads to decide what to do next.
 `SVC-02` still exists and still has both flaws, and nothing calls it, so neither can hurt
 anything today. They wake together, the moment something does.
 
-Twenty-four went into the sweep, `OT-008` and `OT-012` came out of it closed, so twenty-two open,
-three accepted risks and eighteen closed go into Stage 4. None of the twenty-two is about
-credential lifecycle, which is the thing Stage 4 is going to be measured against.
+Twenty-four went into the sweep, `OT-008` and `OT-012` came out of it closed, leaving twenty-two
+open, three accepted risks and eighteen closed. None of the twenty-two is about credential
+lifecycle, which is the thing this chapter was for.
 
 ---
 
@@ -1810,8 +1991,7 @@ the key, is now the fastest: it notices on the next connection. PostgreSQL is th
 notices when told, and until this chapter nothing told it. The application sits between, bounded
 by a number somebody chose.
 
-**Figure 14.3 — the whole estate at the end of Stage 3, and the picture Stage 4 is measured
-against**
+**Figure 14.3 — the whole estate at the end of Stage 3**
 
 ```mermaid
 flowchart LR
@@ -1922,7 +2102,10 @@ in a configuration file rather than the life of a process.
 | `D-091` | Bound the connection's age, not the credential's life |
 | `D-092` | The reload lives beside the consumer, not inside the agent |
 | `D-093` | `signd` rebuilds per connection rather than reloading |
-| `D-094` | Three threads become accepted risks before Stage 4 |
+| `D-094` | Three threads become accepted risks |
+| `D-095` | An open thread is re-measured before a stage boundary, not re-read |
+| `D-096` | The gate checks that claims are true, not only that references resolve |
+| `D-097` | The operator gets a second identity, not a weaker check |
 
 **`D-091`, and it is the decision this chapter nearly got wrong.** The obvious reading of
 `OT-006` is "make the credential short-lived", and that was designed and spiked before being
@@ -1940,17 +2123,26 @@ trade and worth naming rather than treating its behaviour as an oversight.
 
 **`D-094`, why three threads stop being threads.** `AR-002`, `AR-003` and `AR-004` cannot be
 closed by anything this lab can do: they need hardware or a different substrate. Carrying them as
-`OPEN` into Stage 4 would make the queue overstate the estate's problems at exactly the moment
-the estate is being compared with a platform. Each records the single event that reopens it.
+`OPEN` would make the queue overstate the estate's problems at exactly the moment it is about to
+be compared with something else. Each records the single event that reopens it.
 
 **`D-095`, an open thread has to be re-measured, not re-read.** `§9.1` found four threads whose
 stated reasons had stopped being true, three of them for two chapters. The alternative was to
 keep trusting prose written by whoever raised the thread, which is a document describing a system
-that
-has since changed. That is `D-040`'s exact shape, arrived at from a new direction. So the rule
-is now mechanical: **before a stage boundary, every open thread's demonstrated failure gets run
-again, and a thread whose failure no longer reproduces is rewritten or closed on the spot.** It
-costs a grep per thread. Not doing it cost a false promise to Chapter 15.
+that has since changed. That is `D-040`'s exact shape, arrived at from a new direction. So the
+rule is now mechanical: **before a stage boundary, every open thread's demonstrated failure gets
+run again, and a thread whose failure no longer reproduces is rewritten or closed on the spot.**
+It costs a grep per thread. Not doing it cost a promise the next chapter could not have kept.
+
+**`D-097`, why the answer to a lockout is another identity and not a looser check.** `§6` made
+the authority strict enough to refuse its only operator, and the first draft of this chapter
+simply described that. An exemption for the operator's own re-issuance path would have been a
+hole with a good reason attached, and the hole outlives the reason.
+
+The grant `POL-02` must never make is `ca01` to its own name. Self-renewal would make revoking an
+operator meaningless: a compromised `ca01` would issue itself a replacement and carry on. So
+break-glass is a **separate** identity holding exactly one permission, which is also what makes
+it revocable on its own the day you want the lockout to be real.
 
 ---
 
@@ -1964,10 +2156,15 @@ polled.
 incident takes three acts, not one. Revoke, reload, and terminate the sessions that were opened
 before. The third disconnects innocent clients, so it is a decision and not a step.
 
-**`OT-035` and `OT-027`, sharpened by `§6`.** `signd` can now refuse `ca01`, which is the only
-machine that can ask `signd` for anything. Recovery needs a human on `hsm01` issuing by hand. The
-stricter the estate gets, the more it depends on one person being able to reach the machine that
-holds the key.
+**`CERT-12` is a credential nobody will look at until they need it.** `§6` closed the lockout,
+and the thing that closes it is used perhaps once a year, kept on the same host as the primary,
+and expiring on the same ninety day clock `OT-018` says nothing watches. A break-glass credential
+that has quietly expired is worse than none, because you find out at the only moment it mattered.
+
+**`OT-027` and `OT-035`, unchanged and still the deeper version.** `CERT-12` handles a revoked
+operator certificate. It does nothing for a compromised `ca01`, a lost `hsm01`, or an
+intermediate that has to be replaced, and all three still come down to one person being able to
+reach the machine that holds the key.
 
 **`OT-042`, unchanged and now louder.** `POL-02` grants names and says nothing about usages, on
 an authority that has just become the strictest verifier in the estate. Strict about who, vague
@@ -2002,11 +2199,12 @@ measurement is worth, and the build's own bookkeeping was the last place that ru
   strictest verifier in the estate, and watched it refuse its own operator.
 - Met TLS 1.3's post-handshake refusal and the rule it implies: to know whether the other end
   accepted you, read.
-- Triaged every open thread against Stage 4, and converted three that no lab can close into
-  accepted risks.
+- Gave the operator a break-glass certificate, so an authority strict enough to refuse its own
+  operator no longer needs a human at the token to recover.
+- Triaged every open thread, and converted three that no lab can close into accepted risks.
 - Re-ran all twenty-four open threads' demonstrated failures. Twenty reproduced. Four did not:
-  two were rewritten and two closed, including one that had been promised to Kubernetes as a
-  dependency Chapter 12 had already deleted.
+  two were rewritten and two closed, including one whose dependency Chapter 12 had already
+  deleted.
 - Learned that softening a thread's label instead of closing it is the worse outcome, because it
   keeps a solved problem on the work list and reads as diligence.
 

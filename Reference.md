@@ -77,7 +77,7 @@ to the problem that forced it.
 
 ---
 
-## Decisions (84)
+## Decisions (85)
 
 Every one records the alternatives and what would reverse it. Where a later chapter
 overturned an earlier decision, both are kept. Decisions about how the book itself is
@@ -169,3 +169,4 @@ written are not listed here.
 | `D-094` | Three threads become accepted risks before Stage 4 | Chapter 14 |
 | `D-095` | An open thread is re-measured before a stage boundary, not re-read | Chapter 14 |
 | `D-096` | The gate checks that claims are true, not only that references resolve | Chapter 14 |
+| `D-097` | The operator gets a second identity, not a weaker check | Chapter 14 |
