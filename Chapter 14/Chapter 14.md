@@ -856,11 +856,22 @@ for i in 1 2 3; do
   curl -s http://127.0.0.1:8080/credinfo | tr ',' '\n' | grep connection_age_s
   sleep 20
 done
-sudo docker exec dev01 grep -c "reconnecting" /var/log/paymentsvc.out
+# Reconnections SINCE THIS PROCESS STARTED, not since the file was created.
+# paymentsvc.out is opened with >> and never truncated, so a plain `grep -c`
+# counts every reconnect the application has logged across every restart it
+# has ever had. Reset the count at each "listening on" line instead.
+sudo docker exec dev01 sh -c \
+  'awk "/listening on/{n=0} /reconnecting/{n++} END{print n+0}" /var/log/paymentsvc.out'
 ```
 
-Expected: an age that increases by about twenty each time, and `0` reconnections so far. The
-turnover happens at three hundred seconds, which `§7` will not wait for.
+Expected: an age that increases by about twenty each time, and `0` reconnections since start.
+The turnover happens at three hundred seconds, which `§7` will not wait for.
+
+**Why that is an `awk` and not a `grep -c`.** A cumulative log makes a count meaningless without
+a marker to count from. `grep -c "reconnecting"` returns however many reconnects this application
+has had since the container was built, which after a chapter of deliberate breakage is a number
+with no bearing on the question. This is `PROC-11`'s argument from Chapter 11 in a smaller place:
+watch the artefact, and be exact about which part of it you mean.
 
 ---
 
