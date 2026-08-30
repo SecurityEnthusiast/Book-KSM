@@ -51,13 +51,23 @@ services:
     # `sleep infinity`, which is not a real init.
     init: true
 
-    # Substrate only: reports, gates nothing.
-    healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-p", "5432"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
+    # No healthcheck since Chapter 04, and the removal is the point.
+    #
+    # This used to be `pg_isready -h 127.0.0.1 -p 5432`, which was correct
+    # while SVC-01 lived here. Chapter 04 moved the database to HOST-02 and
+    # stopped the local cluster, and the check went on asking dev01 whether
+    # it was running a database it no longer had. It failed every ten
+    # seconds for ten chapters and marked this machine `unhealthy` the whole
+    # time, which is a health check that reports on a service that moved out.
+    #
+    # It is not replaced with a probe of APP-01 for the reason every other
+    # machine here has no healthcheck: the process is started by hand
+    # (OT-009), so the check would report `unhealthy` whenever nobody had
+    # started it yet and tell you nothing you did not already know.
+    #
+    # Chapter 11 gave APP-01 a /healthz that answers a real question. What is
+    # still missing is anything that asks it, and a container healthcheck is
+    # not that thing: it reports to the runtime, not to a person. OT-040.
 
     stop_grace_period: 5s
 

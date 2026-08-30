@@ -831,6 +831,13 @@ sudo docker exec dev01 sh -c '
   chown paymentsvc:paymentsvc /var/lib/paymentsvc/client.crt /var/lib/paymentsvc/client.key
   chmod 0444 /var/lib/paymentsvc/client.crt
   chmod 0400 /var/lib/paymentsvc/client.key'
+# Confirm the two files are a pair BEFORE anything depends on them. Two md5
+# lines that differ mean the certificate was issued for a different key, and
+# the only symptom you would otherwise get is `key values mismatch` from a
+# process that has already exited.
+sudo docker exec -u paymentsvc dev01 sh -c '
+  openssl x509 -in /var/lib/paymentsvc/client.crt -noout -pubkey | openssl md5
+  openssl ec  -in /var/lib/paymentsvc/client.key -pubout 2>/dev/null | openssl md5'
 sudo docker exec dev01 pkill -f 'python3 /opt/paymentsvc/paymentsvc.py' || true
 sudo docker exec -d -u paymentsvc dev01 \
     sh -c 'python3 /opt/paymentsvc/paymentsvc.py >>/var/log/paymentsvc.out 2>&1'
@@ -838,7 +845,8 @@ sleep 2
 curl -s http://127.0.0.1:8080/credinfo; echo
 ```
 
-Expected: `"auth_method": "certificate"`, `"max_connection_age": 300`, and a small
+Expected: **two identical md5 lines**, then `"auth_method": "certificate"`,
+`"max_connection_age": 300`, and a small
 `"connection_age_s"`.
 
 Watch the age climb and the connection turn over:
